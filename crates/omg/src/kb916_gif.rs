@@ -1169,4 +1169,108 @@ mod tests {
         let f = s.frame(Duration::from_millis(10));
         assert_eq!(&f[0..3], &[255, 0, 0]);
     }
+
+    /// Visual check aid: renders sampled slot colours onto the K1 Pro
+    /// key layout as a PNG contact sheet. Run explicitly:
+    ///   GIF_SRC=<file.gif> GIF_OUT=/tmp/preview.png \
+    ///     cargo test -p omg gif_preview_sheet -- --ignored --nocapture
+    #[test]
+    #[ignore = "writes a PNG preview; run explicitly"]
+    fn gif_preview_sheet() {
+        let src = std::env::var("GIF_SRC").unwrap_or_else(|_| {
+            "/private/tmp/kbstudio/assets/keyboard-config__demo_rainbow.gif".to_string()
+        });
+        let out = std::env::var("GIF_OUT")
+            .unwrap_or_else(|_| "/tmp/omg-gif-preview.png".to_string());
+        let clip = decode_clip(&src).expect("decode GIF_SRC");
+        let n = clip.ends.len();
+        eprintln!("{src}: {} frames, {}x{}", n, clip.cw, clip.ch);
+
+        let (bw, bh) = k1pro_layout::layout_bounds();
+        let scale = 2u32;
+        let cols = 4u32;
+        let rows = 2u32;
+        let cell_w = bw * scale;
+        let cell_h = bh * scale;
+        let mut sheet = image::RgbImage::from_pixel(
+            cell_w * cols,
+            cell_h * rows,
+            image::Rgb([20, 20, 24]),
+        );
+
+        let mut stream = GifStream::new(clip, placement(), 1.0, 1.0);
+        let cells = (cols * rows) as usize;
+        for cell in 0..cells {
+            let idx = cell * n / cells;
+            let frame = stream.render(idx);
+            let ox = (cell as u32 % cols) * cell_w;
+            let oy = (cell as u32 / cols) * cell_h;
+            for b in k1pro_layout::K1_PRO_BLOCKS {
+                if !b.display {
+                    continue;
+                }
+                let slot = k1pro_layout::slot_index(b.pos);
+                if slot >= 126 {
+                    continue;
+                }
+                let c = &frame[slot * 3..slot * 3 + 3];
+                let col = image::Rgb([c[0], c[1], c[2]]);
+                // 1-unit gap between keys, like the physical deck.
+                let (x0, y0) = (ox + b.x * scale + scale / 4, oy + b.y * scale + scale / 4);
+                let (x1, y1) = (
+                    ox + (b.x + b.width) * scale - scale / 4,
+                    oy + (b.y + b.height) * scale - scale / 4,
+                );
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        sheet.put_pixel(x, y, col);
+                    }
+                }
+            }
+        }
+        sheet.save(&out).expect("write preview png");
+        eprintln!("wrote {out}");
+
+        // ASCII preview of a mid-clip frame: one char per physical key,
+        // coloured by hue letter + luminance ramp — visible even on
+        // dark GIFs.
+        let frame = stream.render(n / 2);
+        const RAMP: &[u8] = b" .:-=+*#%@";
+        let mut keys: Vec<(u32, u32, usize)> = k1pro_layout::K1_PRO_BLOCKS
+            .iter()
+            .filter(|b| b.display)
+            .map(|b| (b.y, b.x, k1pro_layout::slot_index(b.pos)))
+            .collect();
+        keys.sort();
+        let mut cur_y = u32::MAX;
+        for (y, x, slot) in keys {
+            if slot >= 126 {
+                continue;
+            }
+            if y != cur_y {
+                cur_y = y;
+                eprintln!();
+            }
+            let c = &frame[slot * 3..slot * 3 + 3];
+            let (r, g, b) = (c[0] as u32, c[1] as u32, c[2] as u32);
+            let lum = (r * 299 + g * 587 + b * 114) / 1000;
+            let ch = if lum < 12 {
+                ' '
+            } else {
+                let hue = if r > g + 30 && r > b + 30 {
+                    'R'
+                } else if b > r + 30 && b > g + 30 {
+                    'B'
+                } else if g > r + 30 && g > b + 30 {
+                    'G'
+                } else {
+                    RAMP[(lum as usize * RAMP.len() / 256).min(RAMP.len() - 1)] as char
+                };
+                hue
+            };
+            eprint!("{ch}");
+            let _ = x;
+        }
+        eprintln!();
+    }
 }
