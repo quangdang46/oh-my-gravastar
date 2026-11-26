@@ -10,10 +10,14 @@ connected khub916 device's current state as a schema-valid document
 (the `keymap` section is the single `(layer, system)` table selected by
 the flags; macro entries containing opaque `StepKind::Other` steps and
 out-of-schema-range light fields are omitted with a stderr warning),
-and `omg config apply <file> [--dry-run|--yes]`
-matches the device, runs layer-2 semantic checks (slot conflicts,
-opaque-step preservation, capability gating) and prints a per-section
-plan. **Apply coverage today:** compx `settings`/`lighting` `replace`,
+`omg config diff <file>` prints leaf `{path, doc, device}` differences
+against live state (exit 1 on any diff), `omg config verify <file>`
+adds the apply-coverage report (`not_applied` sections apply cannot
+lower — note `khub916` `lighting` is currently one) and exits 0 only
+when the device already matches, and `omg config apply <file>
+[--dry-run|--yes]` binds the device, runs layer-2 semantic checks
+(slot conflicts, opaque-step preservation, capability gating) and
+prints a per-section plan. **Apply coverage today:** compx `settings`/`lighting` `replace`,
 khub916 `keymap` patch/replace, `macros`, and `settings.sleep_seconds`.
 Everything else is reported `not_applied` with an explicit reason — a
 schema-valid document is never reported as apply-able. The Web validator

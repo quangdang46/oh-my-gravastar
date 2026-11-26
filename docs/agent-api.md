@@ -6,8 +6,8 @@
 > intentionally **not** shared with the Rust CLI.
 >
 > The Rust CLI's Agent-facing contract is a separate, schema-driven
-> desired-state configuration surface (`omg config get|schema|validate|
-> apply|rollback`, `omg cli-schema`) specified in
+> desired-state configuration surface (`omg config get|diff|verify|
+> schema|validate|apply|rollback`, `omg cli-schema`) specified in
 > [device-config-schema.md](device-config-schema.md) with the shared
 > artifact at `schemas/device-config.schema.json`.
 > The two contracts have different op vocabularies and must not be

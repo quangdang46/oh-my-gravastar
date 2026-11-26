@@ -77,6 +77,38 @@ pub enum ConfigCommands {
         #[arg(long, default_value_t = 0)]
         system: u8,
     },
+    /// Diff a desired-state document against the connected khub916
+    /// device's live state (the doc `config get` would emit). Prints a
+    /// JSON array of leaf differences `{path, doc, device}`; exits 0
+    /// when the doc matches live state, 1 when differences exist.
+    /// `--layer`/`--system` select the live keymap table, same as get.
+    Diff {
+        /// Desired-state JSON document to compare.
+        file: PathBuf,
+        /// Keymap layer bits 0-1 of the live table to compare (0-3).
+        #[arg(long, default_value_t = 0)]
+        layer: u8,
+        /// Keymap system/layout bit of the live table to compare (0-1).
+        #[arg(long, default_value_t = 0)]
+        system: u8,
+    },
+    /// Verify a desired-state document against the connected khub916
+    /// device: structural validation, per-section apply coverage
+    /// (`not_applied` sections are reported — apply cannot lower them),
+    /// and a leaf diff vs live state. Prints a JSON report; exits 0
+    /// only when the device already matches every section the doc
+    /// carries (sections apply cannot write still count — a diff there
+    /// can never converge).
+    Verify {
+        /// Desired-state JSON document to verify.
+        file: PathBuf,
+        /// Keymap layer bits 0-1 of the live table to compare (0-3).
+        #[arg(long, default_value_t = 0)]
+        layer: u8,
+        /// Keymap system/layout bit of the live table to compare (0-1).
+        #[arg(long, default_value_t = 0)]
+        system: u8,
+    },
     /// Restore the pre-apply snapshot written by `config apply --yes`.
     /// Snapshots live next to plan journals (`$OMG_PLAN_DIR` or
     /// `~/.local/share/omg/plans`) as `<id>.snapshots.json`.
@@ -1426,6 +1458,16 @@ pub fn run(cli: &Cli, command: &ConfigCommands) -> Result<ExitCode> {
             })
         }
         ConfigCommands::Get { layer, system } => cmd_get(cli, *layer, *system),
+        ConfigCommands::Diff {
+            file,
+            layer,
+            system,
+        } => cmd_diff(cli, file, *layer, *system),
+        ConfigCommands::Verify {
+            file,
+            layer,
+            system,
+        } => cmd_verify(cli, file, *layer, *system),
         ConfigCommands::Rollback { id, yes } => cmd_rollback(cli, id, yes.yes),
     }
 }
@@ -1717,11 +1759,18 @@ fn keymap_section_json(layer: u8, system: u8, values: &[u32]) -> Value {
     })
 }
 
-fn cmd_get(cli: &Cli, layer: u8, system: u8) -> Result<ExitCode> {
+/// Build the desired-state doc for the connected khub916 device —
+/// shared by `config get` (print) and `config diff` (compare). The
+/// result is self-checked through `structural_errors` before return.
+fn khub916_current_doc(
+    cli: &Cli,
+    layer: u8,
+    system: u8,
+) -> Result<std::result::Result<Value, ExitCode>> {
     kb916_macro::check_keymap_args(layer, system)?;
     let (device, mut kb) = match kb916_session(cli)? {
         Ok(s) => s,
-        Err(code) => return Ok(code),
+        Err(code) => return Ok(Err(code)),
     };
 
     let profile = kb.profile()?;
@@ -1803,8 +1852,146 @@ fn cmd_get(cli: &Cli, layer: u8, system: u8) -> Result<ExitCode> {
     if !sem.is_empty() {
         eprintln!("warning: emitted doc has semantic notes: {sem:?}");
     }
-    println!("{}", serde_json::to_string_pretty(&doc)?);
-    Ok(ExitCode::SUCCESS)
+    Ok(Ok(doc))
+}
+
+fn cmd_get(cli: &Cli, layer: u8, system: u8) -> Result<ExitCode> {
+    match khub916_current_doc(cli, layer, system)? {
+        Ok(doc) => {
+            println!("{}", serde_json::to_string_pretty(&doc)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(code) => Ok(code),
+    }
+}
+
+/// Recursive leaf diff between two JSON values. Objects compare
+/// per-key (missing key → diff with `null` on the absent side),
+/// arrays compare element-wise by index, scalars compare by value.
+/// Returns `{path, doc, device}` entries for every leaf difference.
+fn doc_diff(doc: &Value, live: &Value, path: &str, out: &mut Vec<Value>) {
+    match (doc, live) {
+        (Value::Object(a), Value::Object(b)) => {
+            let mut keys: BTreeSet<&String> = a.keys().collect();
+            keys.extend(b.keys());
+            for k in keys {
+                let p = format!("{path}.{k}");
+                match (a.get(k), b.get(k)) {
+                    (Some(x), Some(y)) => doc_diff(x, y, &p, out),
+                    (x, y) => out.push(json!({
+                        "path": p,
+                        "doc": x.cloned().unwrap_or(Value::Null),
+                        "device": y.cloned().unwrap_or(Value::Null),
+                    })),
+                }
+            }
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            for i in 0..a.len().max(b.len()) {
+                let p = format!("{path}[{i}]");
+                match (a.get(i), b.get(i)) {
+                    (Some(x), Some(y)) => doc_diff(x, y, &p, out),
+                    (x, y) => out.push(json!({
+                        "path": p,
+                        "doc": x.cloned().unwrap_or(Value::Null),
+                        "device": y.cloned().unwrap_or(Value::Null),
+                    })),
+                }
+            }
+        }
+        _ => {
+            if doc != live {
+                out.push(json!({
+                    "path": path,
+                    "doc": doc,
+                    "device": live,
+                }));
+            }
+        }
+    }
+}
+
+fn cmd_diff(cli: &Cli, file: &PathBuf, layer: u8, system: u8) -> Result<ExitCode> {
+    let desired = load_config(file)?;
+    let errs = structural_errors(&desired);
+    if !errs.is_empty() {
+        bail!("{file:?} is not schema-valid: {errs:?}");
+    }
+    let diffs = match live_diffs(cli, &desired, layer, system)? {
+        Ok(d) => d,
+        Err(code) => return Ok(code),
+    };
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&Value::Array(diffs.clone()))?
+    );
+    if diffs.is_empty() {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        Ok(ExitCode::from(1))
+    }
+}
+
+/// Leaf diffs between a desired-state doc and the live khub916 doc —
+/// shared by `config diff` (prints them) and `config verify` (reports).
+/// `device`/`schema_version` are identity, not state, and are excluded.
+fn live_diffs(
+    cli: &Cli,
+    desired: &Value,
+    layer: u8,
+    system: u8,
+) -> Result<std::result::Result<Vec<Value>, ExitCode>> {
+    let live = match khub916_current_doc(cli, layer, system)? {
+        Ok(d) => d,
+        Err(code) => return Ok(Err(code)),
+    };
+    let strip = |v: &Value| {
+        let mut o = v.as_object().cloned().unwrap_or_default();
+        o.remove("device");
+        o.remove("schema_version");
+        Value::Object(o)
+    };
+    let mut diffs = Vec::new();
+    doc_diff(&strip(desired), &strip(&live), "", &mut diffs);
+    for d in &mut diffs {
+        if let Some(p) = d["path"].as_str() {
+            d["path"] = json!(p.trim_start_matches('.'));
+        }
+    }
+    Ok(Ok(diffs))
+}
+
+fn cmd_verify(cli: &Cli, file: &PathBuf, layer: u8, system: u8) -> Result<ExitCode> {
+    let desired = load_config(file)?;
+    let errs = structural_errors(&desired);
+    if !errs.is_empty() {
+        bail!("{file:?} is not schema-valid: {errs:?}");
+    }
+    let plan = plan_sections(&desired);
+    let not_applied: Vec<&SectionPlan> = plan
+        .iter()
+        .filter(|s| s.status == SectionStatus::NotApplied)
+        .collect();
+    let diffs = match live_diffs(cli, &desired, layer, system)? {
+        Ok(d) => d,
+        Err(code) => return Ok(code),
+    };
+    let report = json!({
+        "file": file.display().to_string(),
+        "schema_valid": true,
+        "converged": diffs.is_empty(),
+        "diffs": diffs,
+        "not_applied": not_applied.iter().map(|s| json!({
+            "section": s.name,
+            "reason": s.detail,
+        })).collect::<Vec<_>>(),
+    });
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    if diffs.is_empty() {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        Ok(ExitCode::from(1))
+    }
 }
 
 #[cfg(test)]
@@ -1870,6 +2057,25 @@ mod tests {
         assert_eq!(v["brightness"], 4);
         assert!(v.get("color_model").is_none());
         assert_eq!(skipped, vec!["speed", "color_model"]);
+    }
+
+    #[test]
+    fn doc_diff_reports_leaf_paths() {
+        let doc = json!({"a": 1, "b": {"c": "x", "d": [1, 2]}, "e": null});
+        let live = json!({"a": 1, "b": {"c": "y", "d": [1, 3, 4]}, "f": true});
+        let mut out = Vec::new();
+        doc_diff(&doc, &live, "", &mut out);
+        let paths: Vec<&str> = out.iter().filter_map(|d| d["path"].as_str()).collect();
+        assert!(paths.contains(&".b.c"));
+        assert!(paths.contains(&".b.d[1]"));
+        assert!(paths.contains(&".b.d[2]"));
+        assert!(paths.contains(&".e"));
+        assert!(paths.contains(&".f"));
+        assert!(!paths.contains(&".a"));
+        // identical docs produce no diffs
+        let mut same = Vec::new();
+        doc_diff(&doc, &doc, "", &mut same);
+        assert!(same.is_empty());
     }
 
     #[test]
