@@ -13,7 +13,8 @@
  * point at `omg config apply` / the per-feature pages.
  */
 
-import { app, subscribe } from './state.ts';
+import { app, subscribe, ensureKeymap } from './state.ts';
+import { buildStateDoc, FIELD_GUIDE, type ConfigStateInput } from './config-doc.ts';
 import { detectDevice, type DeviceLike } from './core/device-model.ts';
 import {
   validateDeviceConfig,
@@ -69,7 +70,11 @@ function deviceLike(): DeviceLike | null {
   };
 }
 
-function buildAiInstructions(docText: string, doc: Record<string, unknown>): string {
+function buildAiInstructions(
+  docText: string,
+  doc: Record<string, unknown>,
+  stateDoc?: Record<string, unknown> | null,
+): string {
   const like = deviceLike();
   const detected = like ? detectDevice(like) : null;
   const deviceLines = detected
@@ -100,6 +105,15 @@ function buildAiInstructions(docText: string, doc: Record<string, unknown>): str
     '',
     'My current draft (fix it, do not start over unless needed):',
     docText,
+    '',
+    ...FIELD_GUIDE,
+    ...(stateDoc
+      ? [
+          '',
+          'Current device state (read live from the keyboard — treat as the base; only change what I ask):',
+          JSON.stringify(stateDoc, null, 2),
+        ]
+      : []),
   ].join('\n');
 }
 
@@ -128,10 +142,11 @@ export function renderCustomConfig(root: HTMLElement): void {
   const row = el('div', '');
   row.style.cssText = 'display:flex;gap:8px;margin-top:8px;flex-wrap:wrap';
   const validateBtn = el('button', 'btn btn-primary', 'Validate');
+  const loadBtn = el('button', 'btn', 'Load device state');
   const clearBtn = el('button', 'btn', 'Clear');
   const aiBtn = el('button', 'btn', 'Copy AI instructions');
   aiBtn.disabled = true;
-  row.append(validateBtn, clearBtn, aiBtn);
+  row.append(validateBtn, loadBtn, clearBtn, aiBtn);
   edit.body.append(ta, row);
   root.append(edit.card);
 
@@ -146,6 +161,8 @@ export function renderCustomConfig(root: HTMLElement): void {
 
   let lastValidDoc: Record<string, unknown> | null = null;
   let lastValidText = '';
+  /** Doc built by "Load device state" — inlined into the AI prompt as base. */
+  let lastStateDoc: Record<string, unknown> | null = null;
   let applying = false;
 
   function showIssues(issues: { path: string; message: string }[]): void {
@@ -448,16 +465,66 @@ export function renderCustomConfig(root: HTMLElement): void {
     showValid(doc as Record<string, unknown>);
   });
 
+  loadBtn.addEventListener('click', () => {
+    void (async () => {
+      const snap = app.snapshot;
+      const conn = app.connected;
+      if (!snap || !conn) {
+        outBody.replaceChildren(el('p', 'hint', 'Connect a khub916 keyboard first.'));
+        return;
+      }
+      loadBtn.disabled = true;
+      try {
+        let entries = snap.keymaps.get(app.layer);
+        if (!entries) entries = await ensureKeymap(app.layer);
+        const input: ConfigStateInput = {
+          vid: conn.device.vendorId,
+          pid: conn.device.productId,
+          usagePage: conn.collection.usagePage || null,
+          profile: snap.profile,
+          keyValues: entries.map((e) => e.value),
+          layer: app.layer,
+          system: 0,
+          macroRegion: snap.macro.length > 0 ? snap.macro : null,
+        };
+        const r = buildStateDoc(input);
+        if (!r.ok) {
+          outBody.replaceChildren(el('p', 'hint', r.error));
+          lastStateDoc = null;
+          return;
+        }
+        lastStateDoc = r.doc;
+        ta.value = JSON.stringify(r.doc, null, 2);
+        const notes = r.warnings.map((w) => el('li', '', w));
+        if (notes.length > 0) {
+          outBody.replaceChildren(
+            el('p', 'hint', 'Device state loaded into the editor. Warnings:'),
+            el('ul', 'fact-list'),
+          );
+          (outBody.lastElementChild as HTMLElement).append(...notes);
+        } else {
+          outBody.replaceChildren(
+            el('p', 'hint', 'Device state loaded — press Validate, then Copy AI instructions.'),
+          );
+        }
+        validateBtn.click();
+      } finally {
+        loadBtn.disabled = !app.connected || app.busy;
+      }
+    })();
+  });
+
   clearBtn.addEventListener('click', () => {
     ta.value = '';
     outBody.replaceChildren();
     aiBtn.disabled = true;
     lastValidDoc = null;
+    lastStateDoc = null;
   });
 
   aiBtn.addEventListener('click', () => {
     if (!lastValidDoc) return;
-    const text = buildAiInstructions(lastValidText, lastValidDoc);
+    const text = buildAiInstructions(lastValidText, lastValidDoc, lastStateDoc);
     void navigator.clipboard.writeText(text).then(() => {
       aiBtn.textContent = 'Copied — paste into any AI chat';
       setTimeout(() => (aiBtn.textContent = 'Copy AI instructions'), 2000);
@@ -466,6 +533,8 @@ export function renderCustomConfig(root: HTMLElement): void {
 
   // Keep the connected-device hint fresh.
   subscribe(() => {
+    loadBtn.disabled = !app.connected || app.busy;
     if (lastValidDoc) showValid(lastValidDoc);
   });
+  loadBtn.disabled = !app.connected || app.busy;
 }
