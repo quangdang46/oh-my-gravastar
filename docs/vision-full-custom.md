@@ -302,7 +302,7 @@ control surface. Shared core = capability registry + validation +
 safety policy + transaction executor — no duplicated logic.
 
 **Agent interface = CLI + JSON Schema + JSON payload** (not CLI-only,
-not schema-only): `omg schema <cmd>` emits JSON Schema generated from
+not schema-only): `omg cli-schema <cmd>` emits JSON Schema generated from
 the same clap definitions that execute; `omg device discover` for
 capability discovery; `omg plan create/inspect/validate/apply` for
 multi-step workflows with diff/risk/verify. JSON payloads carry complex

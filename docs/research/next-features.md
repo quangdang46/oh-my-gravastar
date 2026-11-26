@@ -1,5 +1,11 @@
 # Next-feature survey — what is feasible next
 
+> **Note (2026-11-26):** written against the earlier config surface
+> (`omg schema`/`guide`/`config get|diff|verify`), which was replaced by the
+> schema-first `omg config schema|validate|apply|rollback`. Items below are
+> historical unless re-verified against `docs/device-config-schema.md`.
+
+
 Date: 2026-11-25. Status of the agent surface after `config apply`
 (a770aad): `omg schema → guide → config get → validate → diff → apply`
 is complete for `khub916-k1pro` (the only live-verified writable

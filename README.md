@@ -90,9 +90,9 @@ Platform direction: **Full Custom + Agent-first + Safety-first** — see
 [docs/IMPLEMENTATION-ROADMAP.md](docs/IMPLEMENTATION-ROADMAP.md) (in progress)
 for the phased plan. Active work is tracked in beads (`br list`).
 
-- 🚧 Agent config platform: schema-driven desired-state CLI
-  (`omg schema/guide/config …`, read-only slice first) + Web W0 UX
-  foundation — specs in [docs/specs/](docs/specs/)
+- ✅ Agent config: schema-first desired-state CLI + Web guided apply
+  (`omg config schema|validate|apply|rollback`, shared
+  `schemas/device-config.schema.json` across Rust/Python/Web)
 - 🚧 Capability registry + safety/transaction engine + spec docs (Phase 0)
 - 🚧 Web UI: styled modals, profile history/diff, music-reactive page
 - ⬜ Keymap/Macro/Lighting Studio upgrades (Phase 1)
@@ -130,28 +130,29 @@ path, `VID:PID` (hex, `0x` prefix optional), or a unique case-insensitive
 substring of the product/manufacturer string. With exactly one matching
 device it is auto-selected.
 
-### Agent configuration surface (in progress)
+### Agent configuration surface
 
-The target Agent workflow is schema-driven desired state, not per-feature
-commands — see [docs/specs/](docs/specs/). The read-only slice:
+The Agent workflow is schema-driven desired state — see
+[docs/device-config-schema.md](docs/device-config-schema.md). The shared
+Draft 2020-12 artifact (`schemas/device-config.schema.json`) is consumed
+identically by the CLI, `schemas/test_schema.py`, and the Web PWA (AJV):
 
 ```sh
-omg schema --device current --json   # device-specific JSON Schema (draft 2020-12)
-omg guide --json                     # workflow + safety/approval rules
-omg config get --device current --json          # current state as config doc
-omg config validate desired.json --device current --json
-omg config diff desired.json --device current --json
-omg config verify desired.json --device current --json   # exit 0 = match, 1 = drift
-omg config apply desired.json --device current --yes   # khub916 K1 Pro
+omg config schema                    # print the desired-state JSON Schema
+omg config validate dev.json         # offline structural validation (all errors + JSON paths)
+omg config apply dev.json            # device match + per-section plan + plan_hash, no writes
+omg config apply dev.json --yes --approve <hash>  # apply; approval bound to the dry-run hash
+omg config rollback <id> --yes       # restore the pre-apply snapshot
 ```
 
-`config apply` writes a validated document to the khub916 K1 Pro
-(`--yes` required, dry-run plan printed without it, every section
-write read-back verified). `config rollback` is **not implemented** — restore by
-`omg config get > snapshot.json` before changes and
-`omg config apply snapshot.json --yes` to roll back (the snapshot is
-itself a valid desired-state document). The
-legacy command-plan format (`omg plan`,
+`omg config` implements the desired-state envelope in
+`docs/device-config-schema.md` (`schemas/device-config.schema.json`).
+Apply coverage is intentionally partial — unsupported sections are
+reported `not_applied` with a reason, never silently skipped. Every
+apply persists a rollback snapshot before the first write; `config
+rollback` verifies device identity (protocol + VID + PID + usage page)
+before restoring. `omg cli-schema <cmd>` remains the machine-readable
+*command* contract, and the command-plan format (`omg plan`,
 [docs/plan-json.md](docs/plan-json.md)) remains the compatibility path
 for multi-step CLI automation.
 

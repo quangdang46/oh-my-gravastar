@@ -1,0 +1,3 @@
+# JSON Schema Draft 2020-12 validation for schemas/test_schema.py
+# Verified with: jsonschema 4.26.0 (Draft202012Validator)
+jsonschema>=4.18,<5

@@ -21,6 +21,7 @@ omg-proto-mouse = { path = "../proto-mouse" }
 omg-proto-khub916 = { path = "../proto-khub916" }
 omg-proto-sparkplayjoy = { path = "../proto-sparkplayjoy" }
 omg-music = { path = "../music" }
-jsonschema = { version = "0.61", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
+jsonschema = "0.30"
+sha2 = "0.10"

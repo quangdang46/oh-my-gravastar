@@ -1,0 +1,464 @@
+{
+  "$comment": "Cross-implementation fixtures for the device-config schema. Every entry under 'valid' must pass Draft 2020-12 validation in ALL THREE validators: schemas/test_schema.py (python jsonschema), crates/omg/src/config.rs tests (jsonschema crate) and web/scripts/smoke-device-config.ts (AJV). 'invalid' entries must fail everywhere. Keep cases focused on parser-domain boundaries and protocol gating.",
+  "devices": {
+    "khub": {
+      "protocol": "khub916",
+      "vid": 7773,
+      "pid": 62721
+    },
+    "mouse": {
+      "protocol": "compx",
+      "vid": 13652,
+      "pid": 62811
+    },
+    "he": {
+      "protocol": "he-v2",
+      "vid": 11778,
+      "pid": 1
+    }
+  },
+  "valid": [
+    {
+      "name": "khub settings sleep",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "settings": {
+          "sleep_seconds": 30
+        }
+      }
+    },
+    {
+      "name": "mouse button param u16 max",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "compx",
+          "vid": 13652,
+          "pid": 62811
+        },
+        "settings": {
+          "mode": "patch",
+          "buttons": [
+            {
+              "kind": "mouse",
+              "param": "65535"
+            },
+            {
+              "kind": "mouse",
+              "param": "65535"
+            },
+            {
+              "kind": "mouse",
+              "param": "65535"
+            },
+            {
+              "kind": "mouse",
+              "param": "65535"
+            },
+            {
+              "kind": "mouse",
+              "param": "65535"
+            },
+            {
+              "kind": "mouse",
+              "param": "65535"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "khub key value u32 max",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "keymap": {
+          "layer": 0,
+          "system": 0,
+          "mode": "patch",
+          "entries": [
+            {
+              "index": 0,
+              "value": "4294967295"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "macro step boundaries",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "macros": [
+          {
+            "index": "next",
+            "steps": [
+              {
+                "action": "down",
+                "key": "KeyA",
+                "delay_ms": 1048575
+              },
+              {
+                "action": "up",
+                "code": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "mouse stage fields independent",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "compx",
+          "vid": 13652,
+          "pid": 62811
+        },
+        "settings": {
+          "mode": "patch",
+          "stage_count": 2,
+          "current_stage": 5
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "mouse param 65536",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "compx",
+          "vid": 13652,
+          "pid": 62811
+        },
+        "settings": {
+          "mode": "patch",
+          "buttons": [
+            {
+              "kind": "dpi",
+              "param": "65536"
+            },
+            {
+              "kind": "dpi",
+              "param": "0"
+            },
+            {
+              "kind": "dpi",
+              "param": "0"
+            },
+            {
+              "kind": "dpi",
+              "param": "0"
+            },
+            {
+              "kind": "dpi",
+              "param": "0"
+            },
+            {
+              "kind": "dpi",
+              "param": "0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "khub key value u32 overflow",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "keymap": {
+          "layer": 0,
+          "system": 0,
+          "mode": "patch",
+          "entries": [
+            {
+              "index": 0,
+              "value": "4294967296"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "macro unknown key name",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "macros": [
+          {
+            "index": 0,
+            "steps": [
+              {
+                "action": "down",
+                "key": "NotAKey"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "macro Fn excluded",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "macros": [
+          {
+            "index": 0,
+            "steps": [
+              {
+                "action": "down",
+                "key": "Fn"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "macro delay+duration",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "macros": [
+          {
+            "index": 0,
+            "steps": [
+              {
+                "action": "down",
+                "key": "KeyA",
+                "delay_ms": 5,
+                "duration": 5
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "macro delete absent",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "macros": [
+          {
+            "index": 0,
+            "delete": true,
+            "steps": [
+              {
+                "action": "down",
+                "key": "KeyA"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "next+bind invalid",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "macros": [
+          {
+            "index": "next",
+            "steps": [
+              {
+                "action": "down",
+                "key": "KeyA"
+              }
+            ],
+            "bind": {
+              "key": 1,
+              "layer": 0,
+              "system": 0,
+              "macro_type": 1,
+              "loop_count": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty mouse lighting patch",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "compx",
+          "vid": 13652,
+          "pid": 62811
+        },
+        "lighting": {
+          "mode": "patch"
+        }
+      }
+    },
+    {
+      "name": "empty mouse settings patch",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "compx",
+          "vid": 13652,
+          "pid": 62811
+        },
+        "settings": {
+          "mode": "patch"
+        }
+      }
+    },
+    {
+      "name": "khub keys empty object",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "lighting": {
+          "keys": {}
+        }
+      }
+    },
+    {
+      "name": "wrong protocol section",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "compx",
+          "vid": 13652,
+          "pid": 62811
+        },
+        "macros": [
+          {
+            "index": 0,
+            "steps": [
+              {
+                "action": "down",
+                "key": "KeyA"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "khub patch with mode field on patch-only",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "macros": [
+          {
+            "index": 0,
+            "steps": [
+              {
+                "action": "down",
+                "key": "KeyA"
+              }
+            ],
+            "mode": "patch"
+          }
+        ]
+      }
+    },
+    {
+      "name": "he keymap patch rejected",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "he-v2",
+          "vid": 11778,
+          "pid": 1
+        },
+        "keymap": {
+          "mode": "patch",
+          "values": []
+        }
+      }
+    },
+    {
+      "name": "unknown top-level field",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        },
+        "settings": {
+          "sleep_seconds": 1
+        },
+        "surprise": true
+      }
+    },
+    {
+      "name": "bad schema_version",
+      "doc": {
+        "schema_version": 2,
+        "device": {
+          "protocol": "khub916",
+          "vid": 7773,
+          "pid": 62721
+        }
+      }
+    },
+    {
+      "name": "envelope only no sections",
+      "doc": {
+        "schema_version": 1,
+        "device": {
+          "protocol": "sparkplayjoy",
+          "vid": 1,
+          "pid": 1
+        }
+      }
+    }
+  ]
+}

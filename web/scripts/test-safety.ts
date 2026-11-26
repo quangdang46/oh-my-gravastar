@@ -493,6 +493,23 @@ section('transaction — success / stop-on-failure / approval / dry-run');
 }
 
 {
+  // Desired-state applies (config apply) set stopOnUnverified: an
+  // unconfirmed write must halt the apply and ok must be false — an
+  // unverified state is not a success.
+  const ran: string[] = [];
+  const tx = await runTransaction(
+    [
+      { type: 'keymap_write', apply: async () => ({ verified: false }) },
+      { type: 'macro_write', apply: async () => void ran.push('after') },
+    ],
+    { approve: approveAll, stopOnUnverified: true },
+  );
+  check('stopOnUnverified halts after unverified write', ran.length === 0 && !tx.completed);
+  check('stopOnUnverified reports not-ok', !tx.ok);
+  check('journal records the unverified write', tx.journal[0]?.result === 'unverified' && tx.counts.unverified === 1);
+}
+
+{
   let applied = 0;
   const ops: PlannedOp[] = [
     { type: 'keymap_write', apply: async () => void applied++ },

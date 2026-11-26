@@ -1,0 +1,1561 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oh-my-gravastar.dev/schemas/device-config.schema.json",
+  "title": "omg device desired-state config (schema_version 1)",
+  "description": "Machine-readable form of docs/device-config-schema.md. Structural validation only: protocol/capability gating, base-read checks, keymap-slot conflict detection and read-back verify are the apply engine's job (layer 2), never this schema's. See docs/device-config-schema.md §8.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "device"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "device": {
+      "$ref": "#/$defs/device"
+    },
+    "keymap": true,
+    "lighting": true,
+    "macros": true,
+    "advanced_keys": true,
+    "settings": true
+  },
+  "anyOf": [
+    {
+      "required": [
+        "keymap"
+      ]
+    },
+    {
+      "required": [
+        "lighting"
+      ]
+    },
+    {
+      "required": [
+        "macros"
+      ]
+    },
+    {
+      "required": [
+        "advanced_keys"
+      ]
+    },
+    {
+      "required": [
+        "settings"
+      ]
+    }
+  ],
+  "allOf": [
+    {
+      "$comment": "khub916: all five sections allowed; each validated by its own $def below.",
+      "if": {
+        "$ref": "#/$defs/isKhub916"
+      },
+      "then": {
+        "properties": {
+          "keymap": {
+            "$ref": "#/$defs/khubKeymap"
+          },
+          "lighting": {
+            "$ref": "#/$defs/khubLighting"
+          },
+          "macros": {
+            "$ref": "#/$defs/khubMacros"
+          },
+          "advanced_keys": {
+            "$ref": "#/$defs/khubAdvancedKeys"
+          },
+          "settings": {
+            "$ref": "#/$defs/khubSettings"
+          }
+        }
+      }
+    },
+    {
+      "$comment": "he-v2: keymap/lighting/settings only. keymap has no write path — schema-valid does NOT mean appliable.",
+      "if": {
+        "$ref": "#/$defs/isHeV2"
+      },
+      "then": {
+        "properties": {
+          "keymap": {
+            "$ref": "#/$defs/heKeymap"
+          },
+          "lighting": {
+            "$ref": "#/$defs/heLighting"
+          },
+          "settings": {
+            "$ref": "#/$defs/heSettings"
+          },
+          "macros": false,
+          "advanced_keys": false
+        }
+      }
+    },
+    {
+      "$comment": "compx: lighting/settings only. patch mode is schema-valid but apply-rejected until read-merge exists.",
+      "if": {
+        "$ref": "#/$defs/isCompx"
+      },
+      "then": {
+        "properties": {
+          "lighting": {
+            "$ref": "#/$defs/mouseLighting"
+          },
+          "settings": {
+            "$ref": "#/$defs/mouseSettings"
+          },
+          "keymap": false,
+          "macros": false,
+          "advanced_keys": false
+        }
+      }
+    },
+    {
+      "$comment": "sparkplayjoy: read-only protocol — no writable section at all.",
+      "if": {
+        "$ref": "#/$defs/isSpark"
+      },
+      "then": {
+        "properties": {
+          "keymap": false,
+          "lighting": false,
+          "macros": false,
+          "advanced_keys": false,
+          "settings": false
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "device": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "vid",
+        "pid"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "enum": [
+            "khub916",
+            "he-v2",
+            "compx",
+            "sparkplayjoy"
+          ]
+        },
+        "vid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "usage_page": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "model": {
+          "type": "string"
+        }
+      }
+    },
+    "isKhub916": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "khub916"
+            }
+          },
+          "required": [
+            "protocol"
+          ]
+        }
+      },
+      "required": [
+        "device"
+      ]
+    },
+    "isHeV2": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "he-v2"
+            }
+          },
+          "required": [
+            "protocol"
+          ]
+        }
+      },
+      "required": [
+        "device"
+      ]
+    },
+    "isCompx": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "compx"
+            }
+          },
+          "required": [
+            "protocol"
+          ]
+        }
+      },
+      "required": [
+        "device"
+      ]
+    },
+    "isSpark": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "sparkplayjoy"
+            }
+          },
+          "required": [
+            "protocol"
+          ]
+        }
+      },
+      "required": [
+        "device"
+      ]
+    },
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "khubColor": {
+      "description": "lighting-schema.md color grammar: \"#rrggbb\", \"rrggbb\", \"r,g,b\" (channels 0-255, spaces tolerated — pm::Rgb::parse trims) or {r,g,b}.",
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}$"
+        },
+        {
+          "type": "string",
+          "pattern": "^\\s*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\s*,\\s*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\s*,\\s*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\s*$"
+        },
+        {
+          "type": "object",
+          "required": [
+            "r",
+            "g",
+            "b"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "r": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "g": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "b": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            }
+          }
+        }
+      ]
+    },
+    "khubKeyValue": {
+      "description": "omg kb916 set key grammar (parse_kb916_key_value): none | empty | - | 0x hex (<=0xFFFFFFFF) | decimal 0..=4294967295. Regex enforces the u32 range exactly.",
+      "type": "string",
+      "pattern": "^(none|empty|-|0[xX][0-9a-fA-F]{1,8}|(0|[1-9][0-9]{0,8}|[12][0-9]{9}|3[0-9]{9}|4[01][0-9]{8}|42[0-8][0-9]{7}|429[0-3][0-9]{6}|4294[0-8][0-9]{5}|42949[0-5][0-9]{4}|429496[0-6][0-9]{3}|4294967[01][0-9]{2}|42949672([0-8][0-9]|9[0-5])))$"
+    },
+    "keymapSlot": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 127
+    },
+    "khubKeymap": {
+      "type": "object",
+      "required": [
+        "layer",
+        "system",
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "layer": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "system": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "mode": {
+          "enum": [
+            "patch",
+            "replace"
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "index",
+              "value"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "index": {
+                "$ref": "#/$defs/keymapSlot"
+              },
+              "value": {
+                "$ref": "#/$defs/khubKeyValue"
+              }
+            }
+          }
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/khubKeyValue"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "patch"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "entries"
+            ],
+            "not": {
+              "required": [
+                "values"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "replace"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "values"
+            ],
+            "not": {
+              "required": [
+                "entries"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "heKeymap": {
+      "description": "Export-shape only — no HeWrite::Keymap exists, so apply always rejects (layer 2). mode is required and only 'replace' is defined.",
+      "type": "object",
+      "required": [
+        "mode",
+        "layers"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "const": "replace"
+        },
+        "layers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "layer",
+              "rows"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "layer": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
+              },
+              "rows": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "row",
+                    "codes"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "codes": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 65535
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "khubLighting": {
+      "description": "docs/lighting-schema.md verbatim: sparse patch, at least one of mode/speed/brightness/color_model/color/keys required. 'mode' here is the effect id, not the envelope section mode.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "speed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "brightness": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "color_model": {
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "color": {
+          "$ref": "#/$defs/khubColor"
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "preset": {
+              "enum": [
+                "solid",
+                "gradient",
+                "rainbow"
+              ]
+            },
+            "color": {
+              "$ref": "#/$defs/khubColor"
+            },
+            "to": {
+              "$ref": "#/$defs/khubColor"
+            },
+            "entries": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "color"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 125
+                  },
+                  "pos": {
+                    "type": "integer",
+                    "minimum": 8,
+                    "maximum": 508
+                  },
+                  "color": {
+                    "$ref": "#/$defs/khubColor"
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "index"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "pos"
+                    ]
+                  }
+                ]
+              }
+            },
+            "colors": {
+              "type": "array",
+              "minItems": 126,
+              "maxItems": 126,
+              "items": {
+                "$ref": "#/$defs/khubColor"
+              }
+            }
+          },
+          "minProperties": 1
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "mode"
+          ]
+        },
+        {
+          "required": [
+            "speed"
+          ]
+        },
+        {
+          "required": [
+            "brightness"
+          ]
+        },
+        {
+          "required": [
+            "color_model"
+          ]
+        },
+        {
+          "required": [
+            "color"
+          ]
+        },
+        {
+          "required": [
+            "keys"
+          ]
+        }
+      ]
+    },
+    "heLighting": {
+      "description": "Per-area patch (HeWrite::Lighting). No replace form — area count is device-dependent.",
+      "type": "object",
+      "required": [
+        "areas"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "areas": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "area"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "area": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "brightness": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "speed": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "direction": {
+                "enum": [
+                  "fwd",
+                  "back"
+                ]
+              },
+              "color_index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7
+              },
+              "palette": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/hexColor"
+                }
+              }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "on"
+                ]
+              },
+              {
+                "required": [
+                  "mode"
+                ]
+              },
+              {
+                "required": [
+                  "brightness"
+                ]
+              },
+              {
+                "required": [
+                  "speed"
+                ]
+              },
+              {
+                "required": [
+                  "direction"
+                ]
+              },
+              {
+                "required": [
+                  "color_index"
+                ]
+              },
+              {
+                "required": [
+                  "palette"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "mouseLighting": {
+      "description": "mode required (patch|replace). patch is schema-valid but apply-rejected until read-merge exists. mode_id is the effect mode (0..=6); 'mode' is the section update style.",
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "patch",
+            "replace"
+          ]
+        },
+        "on": {
+          "type": "boolean"
+        },
+        "mode_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "color": {
+          "$ref": "#/$defs/hexColor"
+        },
+        "speed": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "brightness": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "replace"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "on",
+              "mode_id",
+              "color",
+              "speed",
+              "brightness"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "patch"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "on"
+                ]
+              },
+              {
+                "required": [
+                  "mode_id"
+                ]
+              },
+              {
+                "required": [
+                  "color"
+                ]
+              },
+              {
+                "required": [
+                  "speed"
+                ]
+              },
+              {
+                "required": [
+                  "brightness"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "mouseButton": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "disabled",
+            "mouse",
+            "dpi",
+            "shortcut",
+            "macro"
+          ]
+        },
+        "param": {
+          "description": "Same grammar as `mouse set button <param>` (parse_button -> u16): 0x hex (<=0xFFFF) or decimal 0..=65535 for every kind; button names left|right|middle|back|forward additionally valid only for kind \"mouse\". Absent = parse_button's documented defaults.",
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "mouse"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "param": {
+                "pattern": "^(0[xX][0-9a-fA-F]{1,4}|(0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])|left|right|middle|back|forward)$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "disabled",
+                  "dpi",
+                  "shortcut",
+                  "macro"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "param": {
+                "pattern": "^(0[xX][0-9a-fA-F]{1,4}|(0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "mouseSettings": {
+      "description": "Non-lighting MouseConfig fields. replace mirrors mouse_config_from_json's all-or-nothing parse; patch is schema-valid but apply-rejected until read-merge exists. Colors are #rrggbb strings (engine converts to pm::Rgb).",
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "patch",
+            "replace"
+          ]
+        },
+        "report_rate": {
+          "enum": [
+            125,
+            250,
+            500,
+            1000,
+            2000,
+            4000,
+            8000
+          ]
+        },
+        "stage_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "current_stage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "dpi": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        },
+        "dpi_colors": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/hexColor"
+          }
+        },
+        "lod": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "debounce": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "motion_sync": {
+          "type": "boolean"
+        },
+        "sleep": {
+          "enum": [
+            1,
+            3,
+            6,
+            12,
+            18,
+            30,
+            60,
+            90
+          ]
+        },
+        "angle_snap": {
+          "type": "boolean"
+        },
+        "ripple": {
+          "type": "boolean"
+        },
+        "light_off_moving": {
+          "type": "boolean"
+        },
+        "sensor_mode": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "buttons": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/mouseButton"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "replace"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "report_rate",
+              "stage_count",
+              "current_stage",
+              "dpi",
+              "dpi_colors",
+              "lod",
+              "debounce",
+              "motion_sync",
+              "sleep",
+              "angle_snap",
+              "ripple",
+              "light_off_moving",
+              "sensor_mode",
+              "buttons"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "patch"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "report_rate"
+                ]
+              },
+              {
+                "required": [
+                  "stage_count"
+                ]
+              },
+              {
+                "required": [
+                  "current_stage"
+                ]
+              },
+              {
+                "required": [
+                  "dpi"
+                ]
+              },
+              {
+                "required": [
+                  "dpi_colors"
+                ]
+              },
+              {
+                "required": [
+                  "lod"
+                ]
+              },
+              {
+                "required": [
+                  "debounce"
+                ]
+              },
+              {
+                "required": [
+                  "motion_sync"
+                ]
+              },
+              {
+                "required": [
+                  "sleep"
+                ]
+              },
+              {
+                "required": [
+                  "angle_snap"
+                ]
+              },
+              {
+                "required": [
+                  "ripple"
+                ]
+              },
+              {
+                "required": [
+                  "light_off_moving"
+                ]
+              },
+              {
+                "required": [
+                  "sensor_mode"
+                ]
+              },
+              {
+                "required": [
+                  "buttons"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "macroStep": {
+      "description": "docs/macro-schema.md step. delay_ms/duration are aliases — declaring both is a validation error (parser reads delay_ms first). delay_ms <= 1048575 (20-bit wire).",
+      "type": "object",
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "enum": [
+                "down",
+                "up",
+                "press",
+                "release",
+                "keydown",
+                "keyup",
+                "0",
+                "1"
+              ]
+            },
+            {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            }
+          ]
+        },
+        "key": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            {
+              "$ref": "#/$defs/macroKeyString"
+            }
+          ]
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            {
+              "$ref": "#/$defs/macroKeyString"
+            }
+          ]
+        },
+        "delay_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048575
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048575
+        },
+        "kind": {
+          "enum": [
+            "key",
+            "modifier",
+            "mouse"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "key"
+          ]
+        },
+        {
+          "required": [
+            "code"
+          ]
+        }
+      ],
+      "not": {
+        "required": [
+          "delay_ms",
+          "duration"
+        ]
+      }
+    },
+    "macroBind": {
+      "description": "Engine lowers to macro_key_value(macro_type, loop_count, index) + verified keymap-slot write. All fields required — no defaults.",
+      "type": "object",
+      "required": [
+        "key",
+        "layer",
+        "system",
+        "macro_type",
+        "loop_count"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/keymapSlot"
+        },
+        "layer": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "system": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "macro_type": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "loop_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        }
+      }
+    },
+    "macroEntry": {
+      "type": "object",
+      "required": [
+        "index",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "const": "next"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/macroStep"
+          }
+        },
+        "bind": {
+          "$ref": "#/$defs/macroBind"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "index": {
+                "const": "next"
+              }
+            },
+            "required": [
+              "index"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "bind"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "khubMacros": {
+      "description": "Patch-only array (no mode, no delete in v1 — see docs §5).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/macroEntry"
+      }
+    },
+    "advKeyValue": {
+      "description": "Same grammar as khubKeyValue (parse_kb916_key_value) for tap/hold.",
+      "$ref": "#/$defs/khubKeyValue"
+    },
+    "khubAdvancedKeys": {
+      "description": "Patch-only, khub916-only (docs §6). No delete exists in the protocol; history blob is written whole. Each entry lowers to advkey::plan_* + two verified writes.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "key",
+              "tap",
+              "hold",
+              "time_ms"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "mt"
+              },
+              "key": {
+                "$ref": "#/$defs/keymapSlot"
+              },
+              "tap": {
+                "$ref": "#/$defs/advKeyValue"
+              },
+              "hold": {
+                "$ref": "#/$defs/advKeyValue"
+              },
+              "time_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000,
+                "multipleOf": 10
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "key_a",
+              "key_b",
+              "direction"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "socd"
+              },
+              "key_a": {
+                "$ref": "#/$defs/keymapSlot"
+              },
+              "key_b": {
+                "$ref": "#/$defs/keymapSlot"
+              },
+              "direction": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  {
+                    "enum": [
+                      "last",
+                      "key-a",
+                      "key-b",
+                      "cancel"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "key",
+              "toggle"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "tgl"
+              },
+              "key": {
+                "$ref": "#/$defs/keymapSlot"
+              },
+              "toggle": {
+                "$ref": "#/$defs/keymapSlot"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "khubSettings": {
+      "description": "Patch-only. Only sleep_seconds has a write path today.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "sleep_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        }
+      }
+    },
+    "perfSpec": {
+      "description": "Mirrors PerfWrite/apply_perf_spec (main.rs). actuation_mm is required and drives normal_press (fixed) or rt_first_touch (rt). Range checks against per-switch max travel are engine-side.",
+      "type": "object",
+      "required": [
+        "mode",
+        "actuation_mm"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "fixed",
+            "rt"
+          ]
+        },
+        "actuation_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rt_first_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rt_press_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rt_release_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dz_press_mm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "dz_release_mm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "perfOverride": {
+      "description": "perfSpec + {row, col} target. Written out in full because perfSpec's additionalProperties:false would reject row/col under allOf.",
+      "type": "object",
+      "required": [
+        "row",
+        "col",
+        "mode",
+        "actuation_mm"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "row": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "mode": {
+          "enum": [
+            "fixed",
+            "rt"
+          ]
+        },
+        "actuation_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rt_first_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rt_press_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rt_release_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dz_press_mm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "dz_release_mm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "heSettings": {
+      "description": "Patch-only. polling_hz is the L3 disruptive op (keyboard restarts; missing read-back = verified:false).",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "polling_hz": {
+          "enum": [
+            8000,
+            4000,
+            2000,
+            1000,
+            500,
+            250,
+            125
+          ]
+        },
+        "os": {
+          "enum": [
+            "windows",
+            "macos"
+          ]
+        },
+        "lighting_sleep_minutes": {
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            10,
+            15,
+            20,
+            25,
+            30,
+            45,
+            60,
+            120
+          ]
+        },
+        "perf": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "default": {
+              "$ref": "#/$defs/perfSpec"
+            },
+            "overrides": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/perfOverride"
+              }
+            }
+          },
+          "anyOf": [
+            {
+              "required": [
+                "default"
+              ]
+            },
+            {
+              "required": [
+                "overrides"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "macroKeyString": {
+      "description": "macro step key (parse_key): vendor MACRO_KEY_TABLE name case-insensitive (usage<=255; Fn/counter excluded), 0x hex <=0xFF, or decimal 0..=255.",
+      "type": "string",
+      "pattern": "^(0[xX][0-9a-fA-F]{1,2}|(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])|[eE][sS][cC]|[bB][aA][cC][kK][qQ][uU][oO][tT][eE]|[tT][aA][bB]|[cC][aA][pP][sS][lL][oO][cC][kK]|[sS][hH][iI][fF][tT][lL][eE][fF][tT]|[cC][oO][nN][tT][rR][oO][lL][lL][eE][fF][tT]|[dD][iI][gG][iI][tT]1|[kK][eE][yY][qQ]|[kK][eE][yY][aA]|[kK][eE][yY][zZ]|[mM][eE][tT][aA][lL][eE][fF][tT]|[fF]1|[dD][iI][gG][iI][tT]2|[kK][eE][yY][wW]|[kK][eE][yY][sS]|[kK][eE][yY][xX]|[aA][lL][tT][lL][eE][fF][tT]|[fF]2|[dD][iI][gG][iI][tT]3|[kK][eE][yY][eE]|[kK][eE][yY][dD]|[kK][eE][yY][cC]|[fF]3|[dD][iI][gG][iI][tT]4|[kK][eE][yY][rR]|[kK][eE][yY][fF]|[kK][eE][yY][vV]|[fF]4|[dD][iI][gG][iI][tT]5|[kK][eE][yY][tT]|[kK][eE][yY][gG]|[kK][eE][yY][bB]|[sS][pP][aA][cC][eE]|[fF]5|[dD][iI][gG][iI][tT]6|[kK][eE][yY][yY]|[kK][eE][yY][hH]|[kK][eE][yY][nN]|[fF]6|[dD][iI][gG][iI][tT]7|[kK][eE][yY][uU]|[kK][eE][yY][jJ]|[kK][eE][yY][mM]|[fF]7|[dD][iI][gG][iI][tT]8|[kK][eE][yY][iI]|[kK][eE][yY][kK]|[cC][oO][mM][mM][aA]|[aA][lL][tT][rR][iI][gG][hH][tT]|[fF]8|[dD][iI][gG][iI][tT]9|[kK][eE][yY][oO]|[kK][eE][yY][lL]|[pP][eE][rR][iI][oO][dD]|[fF]9|[dD][iI][gG][iI][tT]0|[kK][eE][yY][pP]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[sS][lL][aA][sS][hH]|[cC][oO][nN][tT][eE][xX][tT][mM][eE][nN][uU]|[fF]10|[mM][iI][nN][uU][sS]|[bB][rR][aA][cC][kK][eE][tT][lL][eE][fF][tT]|[qQ][uU][oO][tT][eE]|[fF]11|[eE][qQ][uU][aA][lL]|[bB][rR][aA][cC][kK][eE][tT][rR][iI][gG][hH][tT]|[eE][nN][tT][eE][rR]|[sS][hH][iI][fF][tT][rR][iI][gG][hH][tT]|[cC][oO][nN][tT][rR][oO][lL][rR][iI][gG][hH][tT]|[fF]12|[bB][aA][cC][kK]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[pP][rR][iI][nN][tT]|[iI][nN][sS][eE][rR][tT]|[dD][eE][lL][eE][tT][eE]|[aA][rR][rR][oO][wW][lL][eE][fF][tT]|[sS][cC][rR][oO][lL][lL][lL][oO][cC][kK]|[hH][oO][mM][eE]|[eE][nN][dD]|[aA][rR][rR][oO][wW][uU][pP]|[aA][rR][rR][oO][wW][dD][oO][wW][nN]|[pP][aA][uU][sS][eE]|[pP][aA][gG][eE][uU][pP]|[pP][aA][gG][eE][dD][oO][wW][nN]|[aA][rR][rR][oO][wW][rR][iI][gG][hH][tT]|[nN][uU][mM][lL][oO][cC][kK]|[nN][uU][mM][pP][aA][dD]7|[nN][uU][mM][pP][aA][dD]4|[nN][uU][mM][pP][aA][dD]1|[nN][uU][mM][pP][aA][dD]0|[nN][uU][mM][pP][aA][dD][dD][iI][vV][iI][dD][eE]|[nN][uU][mM][pP][aA][dD]8|[nN][uU][mM][pP][aA][dD]5|[nN][uU][mM][pP][aA][dD]2|[nN][uU][mM][pP][aA][dD][mM][uU][lL][tT][iI][pP][lL][yY]|[nN][uU][mM][pP][aA][dD]9|[nN][uU][mM][pP][aA][dD]6|[nN][uU][mM][pP][aA][dD]3|[nN][uU][mM][pP][aA][dD][dD][eE][cC][iI][mM][aA][lL]|[nN][uU][mM][pP][aA][dD][sS][uU][bB][tT][rR][aA][cC][tT]|[nN][uU][mM][pP][aA][dD][aA][dD][dD]|[nN][uU][mM][pP][aA][dD][eE][nN][tT][eE][rR]|[mM][oO][uU][sS][eE][lL][eE][fF][tT]|[mM][oO][uU][sS][eE][mM][iI][dD][dD][lL][eE]|[mM][oO][uU][sS][eE][rR][iI][gG][hH][tT]|[mM][oO][uU][sS][eE][bB][aA][cC][kK]|[mM][oO][uU][sS][eE][fF][oO][rR][wW][aA][rR][dD])$"
+    }
+  }
+}

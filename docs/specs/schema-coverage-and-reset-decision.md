@@ -1,5 +1,11 @@
 # Schema Coverage & Reset Decision --- oh-my-gravastar
 
+> **Note (2026-11-26):** the shipped schema is the shared artifact
+> `schemas/device-config.schema.json` (`omg config schema`). Per-property
+> coverage/reset analysis below remains useful input, but command/surface
+> references to `omg schema`/`omg guide`/`config get|diff|verify` are stale.
+
+
 **Status:** Research proposal for implementation follow-up\
 **Repository audited:** `oh-my-gravastar`, branch
 `music-layered-rework`, commit `a458ed7`\

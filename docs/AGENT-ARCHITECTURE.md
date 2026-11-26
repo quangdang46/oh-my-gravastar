@@ -175,6 +175,7 @@ User-facing capability dump — answers "what can THIS device do?":
 | CLI `omg … --json` | [shipped] | every data command; agents drive this today |
 | `omg probe [--deep]` | [shipped] | read-only diagnostic summary |
 | Profile JSON schema v1 | [shipped] | `omg profile export/import` (`crates/omg/src/profile.rs`) |
+| Desired-state config | [partial] | `omg config schema/validate/apply/rollback` + web Custom config page; shared Draft 2020-12 artifact (`schemas/device-config.schema.json`); separate from agent ops — see `docs/agent-api.md` §8 |
 | Web agent module (`web/src/agent/*`) | [missing] | beads `ak2`, `7js` |
 | Dry-run API | [partial] | `profile import --dry-run` exists; general plan dry-run = `ak2` |
 | MCP/tool manifest | [missing] | P2+: expose op schema as MCP tools; each tool = one op type, routed through executor |

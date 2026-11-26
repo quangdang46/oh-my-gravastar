@@ -38,7 +38,8 @@ export type PageId =
   | 'basic'
   | 'config'
   | 'rhythm'
-  | 'setting';
+  | 'setting'
+  | 'customconfig';
 
 /**
  * Full route table — every hash route keeps working (deep links),
@@ -234,6 +235,7 @@ function renderDevice(root: HTMLElement): void {
   const moreLinks = el('div', 'home-links');
   for (const [path, label] of [
     ['/config', 'Backup & restore'],
+    ['/customconfig', 'Custom config (JSON)'],
     ['/basic', 'Keyboard layout info'],
     ['/diagnostics', 'Diagnostics'],
     ['/advanced', 'Advanced keys'],

@@ -100,26 +100,7 @@ enum Commands {
         #[command(subcommand)]
         command: ProfileCommands,
     },
-    /// Desired-state configuration schema for agents (docs/specs/
-    /// rust-cli-config-migration-spec.md). With no `--device`, lists the
-    /// schema families; `--device <kind-or-schema-id>` emits that family's
-    /// JSON Schema 2020-12 document (works offline); `--device <physical>`
-    /// resolves the attached device (cmd 130 model check for khub916).
-    /// `--section` restricts the document to one configuration section.
-    /// Always JSON.
-    Schema {
-        /// Device family selector (khub916_wired, he_keyboard_v2,
-        /// compx_mouse, sparkplayjoy) or a physical device selector
-        /// (path, VID:PID, product substring).
-        #[arg(long)]
-        device: Option<String>,
-        /// Restrict to one configuration section (e.g. `keymap`,
-        /// `lighting`, `macros`).
-        #[arg(long)]
-        section: Option<String>,
-    },
-    /// Machine-readable *command* schema for agents (the pre-config
-    /// meaning of `omg schema`). With no path, lists every command; with
+    /// Machine-readable *command* schema for agents. With no path, lists every command; with
     /// a path (`omg cli-schema kb916 set key`) emits the JSON schema
     /// document for that command's arguments, write flag, target device
     /// family and output shape. Always JSON.
@@ -127,23 +108,18 @@ enum Commands {
         /// Command path segments, e.g. `kb916 set key`.
         path: Vec<String>,
     },
-    /// Agent workflow guide for the read-only config surface: schema →
-    /// get → validate → diff, error codes, safety rules. `--json` for
-    /// the full machine-readable document.
-    Guide,
-    /// Desired-state configuration documents (read-only release):
-    /// `get` reads the device's current state as a valid document,
-    /// `validate` strictly checks a document, `diff` compares desired vs
-    /// current. `apply` is a stable not-implemented stub.
-    Config {
-        #[command(subcommand)]
-        command: config::commands::ConfigCommands,
-    },
     /// Machine-readable device discovery: the supported-device catalog,
     /// per-device inspection, capability maps and connection status.
     Device {
         #[command(subcommand)]
         command: DeviceCommands,
+    },
+    /// Desired-state device configuration (docs/device-config-schema.md):
+    /// print the JSON Schema artifact, validate offline, or plan/apply
+    /// a config document against a connected device.
+    Config {
+        #[command(subcommand)]
+        command: config::ConfigCommands,
     },
     /// Multi-step device plans as JSON (docs/plan-json.md): create a plan
     /// from a document, inspect/validate it, apply steps sequentially
@@ -468,13 +444,9 @@ fn run(cli: &Cli) -> Result<ExitCode> {
         Commands::Kb916 { command } => cmd_kb916(cli, command),
         Commands::Mouse { command } => cmd_mouse(cli, command),
         Commands::Profile { command } => cmd_profile(cli, command),
-        Commands::Schema { device, section } => {
-            config::commands::cmd_schema(cli, device.as_deref(), section.as_deref())
-        }
         Commands::CliSchema { path } => cmd_schema(cli, path),
-        Commands::Guide => config::commands::cmd_guide(cli),
-        Commands::Config { command } => config::commands::run(cli, command),
         Commands::Device { command } => cmd_device(cli, command),
+        Commands::Config { command } => config::run(cli, command),
         Commands::Plan { command } => plan::cmd_plan(cli, command),
         Commands::Runtime { command } => runtime::run(cli, command),
     }
@@ -484,7 +456,7 @@ fn run(cli: &Cli) -> Result<ExitCode> {
 
 fn cmd_schema(cli: &Cli, path: &[String]) -> Result<ExitCode> {
     if path.is_empty() {
-        // The index is JSON either way — `omg schema` is the agent surface.
+        // The index is JSON either way — `omg cli-schema` is the agent surface.
         return print_json(&schema::schema_index()).map(|_| ExitCode::SUCCESS);
     }
     match schema::command_schema(path) {
@@ -496,7 +468,7 @@ fn cmd_schema(cli: &Cli, path: &[String]) -> Result<ExitCode> {
         None => {
             let msg = if schema::is_group_path(path) {
                 format!(
-                    "'{}' is a command group — append a subcommand (see `omg schema`)",
+                    "'{}' is a command group — append a subcommand (see `omg cli-schema`)",
                     path.join(" ")
                 )
             } else {
@@ -512,7 +484,7 @@ fn cmd_schema(cli: &Cli, path: &[String]) -> Result<ExitCode> {
                 }))?;
             } else {
                 eprintln!("error: {msg}");
-                eprintln!("run `omg schema` for the command index");
+                eprintln!("run `omg cli-schema` for the command index");
             }
             Ok(ExitCode::from(1))
         }
@@ -968,7 +940,7 @@ fn mouse_err(e: anyhow::Error) -> anyhow::Error {
 /// Select a Compx mouse device and open it. Identifies the mouse so sensor
 /// limits are known for validation and clamping. `Ok(None)` = no mouse
 /// matched (exit code 2).
-fn open_mouse(cli: &Cli) -> Result<Option<(DeviceInfo, pm::CompxMouse)>> {
+pub(crate) fn open_mouse(cli: &Cli) -> Result<Option<(DeviceInfo, pm::CompxMouse)>> {
     let devices = find_devices()?;
     let mice: Vec<DeviceInfo> = devices
         .into_iter()
@@ -1476,7 +1448,7 @@ fn check_light_level(v: u8, what: &str) -> Result<()> {
     Ok(())
 }
 
-fn parse_button(kind: &str, param: Option<&str>) -> Result<(u8, u16)> {
+pub(crate) fn parse_button(kind: &str, param: Option<&str>) -> Result<(u8, u16)> {
     let k = match kind {
         "disabled" => pm::BUTTON_DISABLED,
         "mouse" => pm::BUTTON_MOUSE,
@@ -4256,11 +4228,10 @@ enum Kb916Screen {
     },
     /// Push an image/GIF to the screen — refused: the GIF→RGB565 frame
     /// pipeline is client-side and not implemented, and screen writes are
-    /// fire-and-forget feature reports with no read-back verify.
-    Push {
-        /// Image or GIF file (unsupported today — see the error message).
-        file: String,
-    },
+    /// fire-and-forget feature reports with no read-back verify. Takes no
+    /// arguments; a file path isn't accepted since the command always
+    /// refuses regardless of input (see the error message).
+    Push,
     /// Sync the screen RTC (cmd 11, wired keyboard interface) — refused:
     /// fire-and-forget write with no read-back, hardware-unverified.
     Clock,
@@ -5315,7 +5286,7 @@ fn cmd_kb916_screen(cli: &Cli, command: &Kb916Screen) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Kb916Screen::Push { .. } => kb916_unsupported(
+        Kb916Screen::Push => kb916_unsupported(
             cli,
             "khub916 screen image push",
             "the GIF→RGB565 frame pipeline is client-side and not implemented, and screen writes (cmd 12/13) are fire-and-forget feature reports with no read-back verify — the CLI refuses blind writes (docs/protocol-khub916-screen.md §2/§4)",
@@ -5942,7 +5913,7 @@ fn select_device<'a>(
 
 /// A selector matches the HID path (exact or suffix), `VID:PID`, or a
 /// case-insensitive substring of the product/manufacturer strings.
-fn device_matches(d: &DeviceInfo, sel: &str) -> bool {
+pub(crate) fn device_matches(d: &DeviceInfo, sel: &str) -> bool {
     if d.path == sel || d.path.ends_with(sel) {
         return true;
     }

@@ -1,6 +1,6 @@
 //! `omg cli-schema` — machine-readable *command* contract for agents.
-//! (Renamed from `omg schema` when the desired-state config schema took
-//! over that command name — see `crate::config::schema`.)
+//! (The device desired-state schema lives at `omg config schema` —
+//! `crate::config`.)
 //!
 //! Argument lists are introspected from the same `clap` definitions that
 //! execute (`Cli::command()`), so a renamed/added flag cannot drift from
@@ -80,8 +80,8 @@ fn device_family(path0: &str) -> &'static str {
         "kb" => "he_keyboard_v2",
         "kb916" => "khub916",
         "mouse" => "compx_mouse",
-        "profile" | "devices" | "probe" | "device" => "all_supported",
-        "schema" => "none",
+        "profile" | "devices" | "probe" | "device" | "config" => "all_supported",
+        "cli-schema" => "none",
         _ => "unknown",
     }
 }
@@ -154,7 +154,7 @@ const OUTPUT_NOTES: &[(&[&str], &str)] = &[
         "{connected:bool,count,devices:[{path,vid_pid,kind,kind_label,product,manufacturer}]}",
     ),
     (
-        &["schema"],
+        &["cli-schema"],
         "{commands:[{command,writes,device}]} index, or a per-command schema doc",
     ),
 ];

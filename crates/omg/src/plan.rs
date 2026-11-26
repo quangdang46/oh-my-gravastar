@@ -2,8 +2,8 @@
 //!
 //! The plan document is the agent interchange format (docs/plan-json.md):
 //! `{ "version": 1, "steps": [{ "op": "kb916 set key", "args": {…} }] }`
-//! where `op` is any leaf command path from `omg schema` (device-driving
-//! families `kb`, `kb916`, `mouse`, `profile` only — `plan`/`schema`/
+//! where `op` is any leaf command path from `omg cli-schema` (device-driving
+//! families `kb`, `kb916`, `mouse`, `profile` only — `plan`/`cli-schema`/
 //! `device` introspection commands cannot be planned).
 //!
 //! Safety mapping (docs/SAFETY-SPEC.md §3): every step is classified
@@ -40,7 +40,7 @@ use crate::{device_matches, export_device_entry, print_json, run, Cli, Yes};
 #[derive(Subcommand)]
 pub(crate) enum PlanCommands {
     /// Parse a plan JSON file (`-` = stdin), validate every step against
-    /// the `omg schema` command contract, store it and print the plan id
+    /// the `omg cli-schema` command contract, store it and print the plan id
     /// plus a per-step summary: risk level, predicted writes, warnings.
     Create {
         /// Plan JSON file (see docs/plan-json.md); `-` reads stdin.
@@ -156,7 +156,7 @@ fn save_json(path: &Path, v: &Value) -> Result<()> {
 const PLAN_SCHEMA: u64 = 1;
 const MAX_STEPS: usize = 64;
 /// Command families a plan may drive. Introspection commands
-/// (`schema`, `device`, `devices`, `probe`) and `plan` itself are
+/// (`cli-schema`, `device`, `devices`, `probe`) and `plan` itself are
 /// rejected — a plan must describe device changes, not meta-commands.
 const PLAN_FAMILIES: &[&str] = &["kb", "kb916", "mouse", "profile"];
 

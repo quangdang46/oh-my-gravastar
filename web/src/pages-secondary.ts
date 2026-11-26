@@ -31,6 +31,7 @@ import { physicalLayoutForModel, PHYSICAL_LAYOUTS } from './layout-model.ts';
 import { confirmDialog } from './modal.ts';
 import { initProfileHistory, renderProfileHistory } from './profiles.ts';
 import { renderProfileSwitcher } from './profile-switcher.ts';
+import { renderCustomConfig } from './custom-config.ts';
 import {
   SnapshotStore,
   rollbackSections,
@@ -924,13 +925,14 @@ function renderSetting(root: HTMLElement): void {
 
 // ── Registry ───────────────────────────────────────────────────────────
 
-export type SecondaryPageId = 'basic' | 'config' | 'rhythm' | 'setting';
+export type SecondaryPageId = 'basic' | 'config' | 'rhythm' | 'setting' | 'customconfig';
 
 export const SECONDARY_PAGES: readonly { id: SecondaryPageId; path: string; title: string }[] = [
   { id: 'basic', path: '/basic', title: 'Keyboard layout' },
   { id: 'config', path: '/config', title: 'Backup & restore' },
   { id: 'rhythm', path: '/rhythm', title: 'Music lighting' },
   { id: 'setting', path: '/setting', title: 'Sleep timer' },
+  { id: 'customconfig', path: '/customconfig', title: 'Custom config (JSON)' },
 ] as const;
 
 export const SECONDARY_RENDERERS: Record<SecondaryPageId, (root: HTMLElement) => void> = {
@@ -938,6 +940,7 @@ export const SECONDARY_RENDERERS: Record<SecondaryPageId, (root: HTMLElement) =>
   config: renderConfig,
   rhythm: renderRhythm,
   setting: renderSetting,
+  customconfig: renderCustomConfig,
 };
 
 // Profile history auto-capture (bead th0): wraps session write methods

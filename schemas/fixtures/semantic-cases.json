@@ -1,0 +1,212 @@
+{
+  "description": "Doc-internal semantic cases shared by the Rust semantic_errors, the web configSemanticErrors, and (structural only) the python validator. Each case lists error substrings that MUST appear; expect_ok cases must produce zero errors. Substring matching keeps messages implementation-owned while pinning the check itself.",
+  "cases": [
+    {
+      "name": "clean khub916 keymap patch",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": {
+          "layer": 0, "system": 0, "mode": "patch",
+          "entries": [
+            { "index": 4, "value": "KeyA" },
+            { "index": 5, "value": "0x01000000" }
+          ]
+        }
+      },
+      "expect_errors": [],
+      "expect_ok": true
+    },
+    {
+      "name": "keymap patch duplicate index",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": {
+          "layer": 0, "system": 0, "mode": "patch",
+          "entries": [
+            { "index": 4, "value": "KeyA" },
+            { "index": 4, "value": "KeyB" }
+          ]
+        }
+      },
+      "expect_errors": ["duplicate index 4"],
+      "expect_ok": false
+    },
+    {
+      "name": "keymap entries vs macro bind slot conflict",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": {
+          "layer": 0, "system": 0, "mode": "patch",
+          "entries": [{ "index": 10, "value": "KeyA" }]
+        },
+        "macros": [
+          {
+            "index": 0,
+            "steps": [{ "action": "press", "key": "KeyA" }],
+            "bind": { "layer": 0, "system": 0, "key": 10 }
+          }
+        ]
+      },
+      "expect_errors": ["keymap slot conflict", "arg 0 slot 10"],
+      "expect_ok": false
+    },
+    {
+      "name": "two macro binds same slot conflict",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "macros": [
+          {
+            "index": 0,
+            "steps": [{ "action": "press", "key": "KeyA" }],
+            "bind": { "layer": 1, "system": 0, "key": 3 }
+          },
+          {
+            "index": 1,
+            "steps": [{ "action": "press", "key": "KeyB" }],
+            "bind": { "layer": 1, "system": 0, "key": 3 }
+          }
+        ]
+      },
+      "expect_errors": ["keymap slot conflict"],
+      "expect_ok": false
+    },
+    {
+      "name": "duplicate numeric macro index",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "macros": [
+          { "index": 0, "steps": [{ "action": "press", "key": "KeyA" }] },
+          { "index": 0, "steps": [{ "action": "press", "key": "KeyB" }] }
+        ]
+      },
+      "expect_errors": ["duplicate index 0"],
+      "expect_ok": false
+    },
+    {
+      "name": "next indices do not collide semantically",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "macros": [
+          { "index": "next", "steps": [{ "action": "press", "key": "KeyA" }] },
+          { "index": "next", "steps": [{ "action": "press", "key": "KeyB" }] }
+        ]
+      },
+      "expect_errors": [],
+      "expect_ok": true
+    },
+    {
+      "name": "keymap replace values vs macro bind conflict",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": {
+          "layer": 0, "system": 0, "mode": "replace",
+          "values": ["KeyA", "KeyB", "KeyC"]
+        },
+        "macros": [
+          {
+            "index": 0,
+            "steps": [{ "action": "press", "key": "KeyA" }],
+            "bind": { "layer": 0, "system": 0, "key": 2 }
+          }
+        ]
+      },
+      "expect_errors": ["keymap slot conflict", "arg 0 slot 2"],
+      "expect_ok": false
+    },
+    {
+      "name": "keymap replace alone claims no conflict",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": {
+          "layer": 0, "system": 0, "mode": "replace",
+          "values": ["KeyA", "KeyB"]
+        }
+      },
+      "expect_errors": [],
+      "expect_ok": true
+    },
+    {
+      "name": "advanced_keys mt vs keymap patch conflict",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": {
+          "layer": 0, "system": 0, "mode": "patch",
+          "entries": [{ "index": 7, "value": "KeyA" }]
+        },
+        "advanced_keys": [
+          { "kind": "mt", "key": 7, "tap": "0x04", "hold": "0x05", "time_ms": 200 }
+        ]
+      },
+      "expect_errors": ["keymap slot conflict", "arg 0 slot 7"],
+      "expect_ok": false
+    },
+    {
+      "name": "advanced_keys socd claims both slots",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": {
+          "layer": 0, "system": 0, "mode": "patch",
+          "entries": [{ "index": 11, "value": "KeyA" }]
+        },
+        "advanced_keys": [
+          { "kind": "socd", "key_a": 10, "key_b": 11, "direction": 0 }
+        ]
+      },
+      "expect_errors": ["keymap slot conflict", "arg 0 slot 11"],
+      "expect_ok": false
+    },
+    {
+      "name": "advanced_keys alone is clean",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "advanced_keys": [
+          { "kind": "mt", "key": 5, "tap": "0x04", "hold": "0x05", "time_ms": 200 },
+          { "kind": "tgl", "key": 20, "toggle": 21 }
+        ]
+      },
+      "expect_errors": [],
+      "expect_ok": true
+    },
+    {
+      "name": "sparkplayjoy writable section rejected",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "sparkplayjoy", "vid": 1234, "pid": 5678 },
+        "keymap": { "layer": 0, "system": 0, "mode": "patch", "entries": [] }
+      },
+      "expect_errors": ["sparkplayjoy"],
+      "expect_ok": false
+    },
+    {
+      "name": "different (arg,slot) no conflict",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": {
+          "layer": 0, "system": 0, "mode": "patch",
+          "entries": [{ "index": 10, "value": "KeyA" }]
+        },
+        "macros": [
+          {
+            "index": 0,
+            "steps": [{ "action": "press", "key": "KeyA" }],
+            "bind": { "layer": 1, "system": 0, "key": 10 }
+          }
+        ]
+      },
+      "expect_errors": [],
+      "expect_ok": true
+    }
+  ]
+}

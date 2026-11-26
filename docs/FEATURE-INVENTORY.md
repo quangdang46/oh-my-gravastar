@@ -200,6 +200,7 @@ hiding them.
 | OS mode | [partial] | `omg kb os set` (HE) code-tested |
 | Battery/charging | [shipped] | `kb916 power`, `omg mouse battery` (mouse code-tested) |
 | Sleep timer | [shipped] | `kb916 set sleep`, `profile get`, web setting page — live-verified |
+| Desired-state JSON config | [partial] | `omg config schema/validate/apply/rollback` (Draft 2020-12 artifact shared with Web AJV validator, per-section snapshot+journal); apply covers compx `settings`/`lighting` replace + khub916 `keymap`/`macros`/`sleep_seconds` — everything else reports `not_applied`. Web Custom config page validates, shows the same capability plan, and applies the khub916 subset via the safety transaction layer (`web/src/config-apply.ts`) (`docs/device-config-schema.md`) |
 | Power saving | [partial] | sleep covers part of it |
 | Debounce | [missing] | no protocol evidence |
 | NKRO/6KRO | [missing] | — |

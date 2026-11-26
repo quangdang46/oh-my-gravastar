@@ -1,5 +1,10 @@
 # Rust CLI Configuration Migration & Agent Surface Specification
 
+> **SUPERSEDED (2026-11-26):** the shipped desired-state surface is
+> the schema-first design in [../device-config-schema.md](../device-config-schema.md)
+> (`schemas/device-config.schema.json`, `omg config schema|validate|apply|rollback`).
+> This document is kept for decision history only — do not implement from it.
+
 **Project:** oh-my-gravastar (`omg`)\
 **Status:** Proposed major migration specification\
 **Scope:** Rust workspace, primarily `crates/omg`, preserving protocol

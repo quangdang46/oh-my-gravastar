@@ -1,5 +1,10 @@
 # Architecture Decision Record: Full Desired-State Configuration
 
+> **SUPERSEDED (2026-11-26):** the shipped desired-state surface is
+> the schema-first design in [../device-config-schema.md](../device-config-schema.md)
+> (`schemas/device-config.schema.json`, `omg config schema|validate|apply|rollback`).
+> This document is kept for decision history only — do not implement from it.
+
 **Project:** oh-my-gravastar\
 **Status:** Accepted\
 **Decision:** The Rust CLI uses full desired-state configuration only.

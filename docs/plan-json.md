@@ -5,12 +5,10 @@
 > is a leaf CLI command path. It remains supported for multi-step CLI
 > automation, but it is **not** the Agent configuration contract.
 >
-> The target Agent surface is the schema-driven desired-state document
-> (`omg schema` / `omg guide` / `omg config get|validate|diff|apply`)
-> specified in [specs/rust-cli-config-migration-spec.md](specs/rust-cli-config-migration-spec.md)
-> and [specs/ADR-full-desired-state-config.md](specs/ADR-full-desired-state-config.md).
-> `config apply` is not implemented yet — the read-only slice
-> (`schema`, `guide`, `config get|validate|diff`) is landing first.
+> The Agent configuration contract is the schema-driven desired-state
+> document (`omg config schema|validate|apply|rollback`) specified in
+> [device-config-schema.md](device-config-schema.md) with the shared
+> artifact at `schemas/device-config.schema.json`.
 
 Machine-readable multi-step device plans. This is the interchange format
 for agents (and later the web agent engine): describe desired changes as
@@ -61,11 +59,10 @@ Safety contract (docs/plan.md §2, docs/SAFETY-SPEC.md):
 ```
 
 - `version` must be `1` (`schema` is accepted as an alias).
-- `op` is a **leaf command path** from `omg cli-schema` (the legacy
-  Clap-derived command listing; `omg schema` now emits the device
-  configuration schema — see the header note), space-separated,
+- `op` is a **leaf command path** from `omg cli-schema` (the
+  Clap-derived command listing), space-separated,
   restricted to the device-driving families `kb`, `kb916`, `mouse`,
-  `profile`. Introspection commands (`schema`, `device`, `devices`,
+  `profile`. Introspection commands (`cli-schema`, `device`, `devices`,
   `probe`) and `plan` itself cannot be planned.
 - `args` keys are clap **argument ids** (the `name` field of
   `omg cli-schema <cmd>`); the `--long` spelling (`interval-ms`) is also
@@ -212,3 +209,29 @@ plan touched, in reverse order. Coverage:
 Every restore is itself a verified write through the normal command
 path; results land in the journal under `rollback.results` with
 `success|unverified|failed|skipped`.
+
+## Relationship to `omg config` (desired-state)
+
+`plan` and `config` are complementary, not interchangeable:
+
+- **`config`** (`omg config apply`, `docs/device-config-schema.md`) is a
+  *desired-state* document: it describes the target configuration of one
+  device and lets the engine diff it against live state. Use it for
+  "make this device look like X".
+- **`plan`** is an *ordered action* document: an explicit sequence of
+  operations with per-step verify/journal/rollback, spanning multiple
+  devices and mixing reads with writes. Use it for workflows
+  ("probe, then set these three things, then verify").
+
+`config` is deliberately **not** a plan family today: a plan step resolves
+its device up front (`required_kind` → one `DeviceKind`), while a config
+document selects its device from its own `device` block across three
+protocol families. `config apply` therefore keeps its own journal +
+snapshot store (`<id>.journal.json` / `<id>.snapshots.json` in the same
+directory) and its own restore path (`omg config rollback <id> --yes`).
+Wiring `config apply` in as a plan step is a future change that must also
+teach `step_sections`/`khub916_needs` that plan-level rollback cannot see
+inside the envelope — until then a plan must not claim coverage for it.
+Conversely, action-verbs (factory reset, firmware update, pairing,
+screen push, live streaming, calibration) are never config fields —
+they stay plan/CLI operations only.

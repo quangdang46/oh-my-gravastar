@@ -29,6 +29,15 @@ Before any plan is built, every op argument passes schema validation:
   macro ≤ region capacity.
 - **Enums**: lighting mode ∈ `LIGHT_MODES` ids; layer ∈ device layer count
   from capability registry (khub916 = 4).
+- **Desired-state config** (`omg config`, `docs/device-config-schema.md`):
+  layer-1 structural validation is Draft 2020-12 against the single
+  shared artifact `schemas/device-config.schema.json` — consumed by the
+  Rust CLI (`crates/omg/src/config.rs`, `jsonschema` crate, embedded via
+  `include_str!`) and the Web app (`web/src/device-config.ts`, AJV
+  2020-12, same file imported — never copied). All ranges above apply
+  inside that artifact; anything the schema cannot express statically
+  (device-reported slot counts, unknown-tag base reads, firmware gates)
+  remains a layer-2/3 check in the apply engine.
 
 ## 2. Layer 2 — Capability & compatibility
 
@@ -62,6 +71,32 @@ Policy is a pure function `classify(op) -> L0..L4` in
 `web/src/safety/policy.ts` (bead `sid`), keyed on op type — not on caller.
 The CLI enforces the same classes via `--yes` (L2/L3) and omission (L4);
 `--dry-run` covers L1.
+
+`omg config apply` inherits this unchanged: `--dry-run`/no flag is L1
+(validate + plan only, no bytes sent). `--yes` is L2 per effective write
+AND is bound to the previewed plan: the dry run prints a `plan_hash`
+(sha256 over the canonical document + selected device identity +
+section plan) and apply refuses without `--approve <hash>` matching it —
+the approval names exactly what was previewed, and the hash is recorded
+in the apply journal.
+A desired-state document can never express an L3 op — disruptive fields
+(e.g. HE `polling_hz`, which restarts the keyboard) are either absent from
+the schema or reported `not_applied` until their lowering implements the
+L3 confirmation path explicitly. L4 has no representation in the config
+envelope at all. Each `--yes` apply captures read-only snapshots of every
+section it will write and persists `<id>.snapshots.json` BEFORE the first
+write byte — if the snapshot cannot be written, the apply aborts. The
+journal `<id>.journal.json` is rewritten after every section, apply stops
+at the first hard failure AND the first `applied_unverified` write, and
+`omg config rollback <id> --yes` re-verifies the connected device's
+protocol + VID + PID + usage page against the recorded identity before
+restoring — the same backup→write→verify→journal shape as §4, scoped per
+section rather than per plan step. The legacy `kb916 macro
+set|delete|bind|unbind` writes persist the same snapshot format before
+their first write, so they are rollback-able through `omg config
+rollback` as well. On the Web, the Custom config apply refuses to run
+unless every snapshot section the planned ops need was captured without
+errors (`web/src/custom-config.ts`).
 
 ## 4. Layer 4 — Transaction executor
 

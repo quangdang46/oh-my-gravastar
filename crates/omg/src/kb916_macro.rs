@@ -105,9 +105,9 @@ pub enum Kb916Macro {
 // ── Steps JSON (docs/macro-schema.md) ───────────────────────────────────
 
 /// Parsed `macro set` payload: optional name override + steps.
-struct StepsInput {
-    name: Option<String>,
-    steps: Vec<MacroStep>,
+pub(crate) struct StepsInput {
+    pub(crate) name: Option<String>,
+    pub(crate) steps: Vec<MacroStep>,
 }
 
 fn parse_action(v: &Value, ctx: &str) -> Result<u8> {
@@ -230,7 +230,7 @@ fn parse_one_step(v: &Value, i: usize) -> Result<MacroStep> {
 /// Parse the `steps` argument: `-` = stdin, an existing file path, or
 /// inline JSON. Top level may be a bare step array or
 /// `{"name": "…", "steps": […]}`.
-fn parse_steps_input(text: &str) -> Result<StepsInput> {
+pub(crate) fn parse_steps_input(text: &str) -> Result<StepsInput> {
     let v: Value =
         serde_json::from_str(text).map_err(|e| anyhow::anyhow!("steps JSON parse error: {e}"))?;
     let (name, arr) = match &v {
@@ -279,7 +279,9 @@ fn read_steps_arg(arg: &str) -> Result<String> {
 
 // ── Output helpers ──────────────────────────────────────────────────────
 
-/// JSON view of one step, round-trippable through `parse_steps_input`.
+/// JSON view of one step. Round-trippable through `parse_steps_input`
+/// only for known kinds — `Other` emits `kind:"other"`+`nibble`+`usage`,
+/// which the parser deliberately cannot re-import (§Safety 7).
 fn step_json(s: &MacroStep) -> Value {
     let action = if s.action == 0 { "down" } else { "up" };
     let kind = match s.kind {
@@ -334,11 +336,53 @@ fn region_json(device: &omg_hid::DeviceInfo, raw: &[u8], entries: &[MacroEntry])
 
 // ── Keymap bind helpers ─────────────────────────────────────────────────
 
-fn check_keymap_args(layer: u8, system: u8) -> Result<()> {
+pub(crate) fn check_keymap_args(layer: u8, system: u8) -> Result<()> {
     if layer > 3 || system > 1 {
         bail!("invalid keymap argument: --layer must be 0-3, --system 0-1");
     }
     Ok(())
+}
+
+/// Keymap arg byte for the cmd-131/3 table access:
+/// `layer & 3 | (system & 1) << 2`.
+pub(crate) fn keymap_arg(layer: u8, system: u8) -> u8 {
+    (layer & 3) | ((system & 1) << 2)
+}
+
+// ── Rollback snapshots ─────────────────────────────────────────────────
+//
+// Every mutating `kb916 macro` subcommand persists a snapshot in the
+// `omg config` store BEFORE its first device write, so
+// `omg config rollback <id> --yes` can restore it. Snapshot shapes match
+// `crates/omg/src/config.rs`:
+//   "macros"  → {"kind":"khub916-macros","region":hex,"binds":[…]}
+//   "keymap"  → {"kind":"khub916-keymap","args":[{layer,system,values}]}
+
+/// Full-table keymap snapshot for one (layer, system) arg.
+fn keymap_snapshot(kb: &mut omg_proto_khub916::Khub916, layer: u8, system: u8) -> Result<Value> {
+    check_keymap_args(layer, system)?;
+    let values = kb.key_values(keymap_arg(layer, system))?;
+    Ok(json!({"kind":"khub916-keymap","args":[{
+        "layer": layer, "system": system, "values": values,
+    }]}))
+}
+
+/// Pre-write macro-region snapshot (binds restored via "keymap" sections).
+fn macro_region_snapshot(raw: &[u8]) -> Value {
+    json!({
+        "kind": "khub916-macros",
+        "region": crate::config::hex(raw),
+        "binds": [],
+    })
+}
+
+/// Persist the snapshot and return its id for the rollback hint. Any
+/// failure aborts the caller BEFORE a device write — no write without a
+/// durable rollback record.
+fn persist_macro_snapshot(device: &omg_hid::DeviceInfo, sections: Value) -> Result<String> {
+    let id = crate::config::persist_snapshot(device, "khub916", sections)?;
+    eprintln!("rollback snapshot {id} — restore with: omg config rollback {id} --yes");
+    Ok(id)
 }
 
 /// One keymap slot write request (cmd 3, read-modify-write + verify).
@@ -384,6 +428,36 @@ fn bind_key_slot(
         &format!("{change}: 0x{old:08X} -> 0x{value:08X}"),
         &outcome,
     )
+}
+
+// ── Opaque-step preservation guard ──────────────────────────────────────
+
+/// `build_macro_region` re-encodes every entry from the parsed model.
+/// `StepKind::Other` steps survive that path byte-identically *only if
+/// the entry is kept untouched* — but `macro set`/`delete` rebuild the
+/// whole region, and any `Other` step in an entry the user did not ask
+/// to change would be silently rewritten. Fail closed instead
+/// (AGENTS.md §Safety 6/7): every entry except `skip` (the one being
+/// replaced or removed outright) must decode to known step kinds.
+pub(crate) fn check_region_preservable(entries: &[MacroEntry], skip: &[usize]) -> Result<()> {
+    for (i, e) in entries.iter().enumerate() {
+        if skip.contains(&i) {
+            continue;
+        }
+        for (j, s) in e.steps.iter().enumerate() {
+            if let StepKind::Other(n) = s.kind {
+                bail!(
+                    "macro[{i}] \"{}\" step {j} uses unrecognized step kind \
+                     (raw nibble {n:#04x}) — refusing to rebuild the macro \
+                     region because that step cannot be proven preserved \
+                     byte-identically; edit or delete macro[{i}] explicitly \
+                     first",
+                    e.name,
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 // ── Command entry ───────────────────────────────────────────────────────
@@ -455,6 +529,10 @@ pub fn run(cli: &Cli, command: &Kb916Macro) -> Result<ExitCode> {
                                 sj["action"].as_str().unwrap_or("?"),
                                 sj["delay_ms"],
                                 sj["key"]
+                                    .as_str()
+                                    .map(str::to_string)
+                                    .or_else(|| sj["usage"].as_u64().map(|u| format!("usage {u}")))
+                                    .unwrap_or_else(|| "?".into())
                             );
                         }
                     }
@@ -495,6 +573,10 @@ pub fn run(cli: &Cli, command: &Kb916Macro) -> Result<ExitCode> {
                         bail!("--loop-count must be ≥ 1 (vendor `num` field)");
                     }
                     let value = macro916::macro_key_value(*macro_type, *loop_count, *index as u8);
+                    // Snapshot the full keymap table before the write.
+                    let mut sections = serde_json::Map::new();
+                    sections.insert("keymap".into(), keymap_snapshot(&mut kb, *layer, *system)?);
+                    persist_macro_snapshot(&device, Value::Object(sections))?;
                     bind_key_slot(
                         &mut kb,
                         &device,
@@ -515,6 +597,10 @@ pub fn run(cli: &Cli, command: &Kb916Macro) -> Result<ExitCode> {
                     key, layer, system, ..
                 } => {
                     check_keymap_args(*layer, *system)?;
+                    // Snapshot the full keymap table before the write.
+                    let mut sections = serde_json::Map::new();
+                    sections.insert("keymap".into(), keymap_snapshot(&mut kb, *layer, *system)?);
+                    persist_macro_snapshot(&device, Value::Object(sections))?;
                     bind_key_slot(
                         &mut kb,
                         &device,
@@ -548,6 +634,52 @@ pub fn run(cli: &Cli, command: &Kb916Macro) -> Result<ExitCode> {
                 );
             }
             let removed = entries.remove(*index);
+            // All remaining entries are rebuilt — any `Other` step among
+            // them cannot be proven preserved, so refuse before writing.
+            check_region_preservable(&entries, &[])?;
+            // Warn about keymap bindings this delete invalidates. Deleting
+            // index i orphans tag-3 binds to i and silently retargets binds
+            // to every index > i (entries compact). We never unbind
+            // implicitly — the user must run `macro unbind` per slot.
+            let mut bound = Vec::new();
+            let mut shifted = 0usize;
+            let mut scan_ok = true;
+            for arg in 0..8u8 {
+                match kb.key_values(arg) {
+                    Ok(values) => {
+                        for (slot, &v) in values.iter().enumerate() {
+                            if (v >> 24) == 0x03 {
+                                let bi = (v & 0xFF) as usize;
+                                if bi == *index {
+                                    bound.push(format!("arg{arg}/key{slot}"));
+                                } else if bi > *index {
+                                    shifted += 1;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        scan_ok = false;
+                        eprintln!("warning: keymap arg {arg} read failed ({e:#}) — binding scan incomplete");
+                    }
+                }
+            }
+            if !bound.is_empty() || shifted > 0 {
+                eprintln!(
+                    "warning: macro[{index}] has {} key binding(s){} — they will point at a missing/shifted macro; \
+                     run `omg kb916 macro unbind` per slot if unwanted",
+                    bound.len(),
+                    if bound.is_empty() { String::new() } else { format!(" ({})", bound.join(", ")) },
+                );
+                if shifted > 0 {
+                    eprintln!(
+                        "warning: {} binding(s) target macro indices > {index} and will silently retarget after the region compacts",
+                        shifted
+                    );
+                }
+            } else if !scan_ok {
+                eprintln!("warning: could not fully scan keymap bindings — check `omg kb916 keys` manually");
+            }
             // An empty entry list assembles to 0 bytes; the wire write
             // needs ≥1 byte — send a minimal all-zero region (parses as
             // "no macros", pads to the fixed 512 B payload).
@@ -556,6 +688,12 @@ pub fn run(cli: &Cli, command: &Kb916Macro) -> Result<ExitCode> {
             } else {
                 macro916::build_macro_region(&entries)?
             };
+            // Snapshot the pre-delete region BEFORE the write so
+            // `config rollback` can restore it (binds realign because the
+            // region is positional).
+            let mut sections = serde_json::Map::new();
+            sections.insert("macros".into(), macro_region_snapshot(&raw));
+            persist_macro_snapshot(&device, Value::Object(sections))?;
             let outcome = kb.write_macro_region(&region)?;
             kb916_write_report(
                 cli,
@@ -627,6 +765,13 @@ pub fn run(cli: &Cli, command: &Kb916Macro) -> Result<ExitCode> {
                     );
                 }
             }
+            // Fail closed before rebuilding: untouched entries containing
+            // `StepKind::Other` steps cannot be proven byte-preserved by
+            // the parse→re-encode path. The entry being replaced (or the
+            // appended slot, which has no prior steps) is exempt — its
+            // steps are the user's explicit input.
+            let skip: &[usize] = if appending { &[] } else { &[slot] };
+            check_region_preservable(&entries, skip)?;
             // Validate the whole rebuilt region before writing.
             if appending {
                 entries.push(new_entry);
@@ -634,6 +779,46 @@ pub fn run(cli: &Cli, command: &Kb916Macro) -> Result<ExitCode> {
                 entries[slot] = new_entry;
             }
             let region = macro916::build_macro_region(&entries)?;
+
+            // Preflight the optional bind BEFORE the first write: every
+            // condition that can fail without mutating must pass now, so
+            // an invalid bind can never leave a rewritten macro region
+            // behind a failed command. The live table read doubles as
+            // the rollback snapshot's keymap section.
+            let mut bind_table: Option<(u8, u8, usize, Vec<u32>)> = None;
+            if let Some(k) = key {
+                if *loop_count == 0 {
+                    bail!("--loop-count must be ≥ 1 (vendor `num` field)");
+                }
+                if slot > u8::MAX as usize {
+                    bail!("macro index {slot} does not fit the tag-3 u8 field");
+                }
+                check_keymap_args(*layer, *system)?;
+                let arg = keymap_arg(*layer, *system);
+                let values = kb.key_values(arg)?;
+                if *k >= values.len() {
+                    bail!(
+                        "key slot {k} out of range: keymap has {} entries (arg 0x{arg:02X})",
+                        values.len()
+                    );
+                }
+                bind_table = Some((*layer, *system, *k, values));
+            }
+
+            // Durable rollback record BEFORE the first write: the
+            // pre-write region plus (when binding) the full keymap table.
+            let mut sections = serde_json::Map::new();
+            sections.insert("macros".into(), macro_region_snapshot(&raw));
+            if let Some((l, s, _, ref values)) = bind_table {
+                sections.insert(
+                    "keymap".into(),
+                    json!({"kind":"khub916-keymap","args":[{
+                        "layer": l, "system": s, "values": values,
+                    }]}),
+                );
+            }
+            persist_macro_snapshot(&device, Value::Object(sections))?;
+
             let outcome = kb.write_macro_region(&region)?;
             let mut report = format!(
                 "macro[{slot}] \"{entry_name}\" — {} steps written",
@@ -653,22 +838,16 @@ pub fn run(cli: &Cli, command: &Kb916Macro) -> Result<ExitCode> {
                 );
             }
             if let Some(k) = key {
-                if *loop_count == 0 {
-                    bail!("--loop-count must be ≥ 1 (vendor `num` field)");
-                }
-                if slot > u8::MAX as usize {
-                    bail!("macro index {slot} does not fit the tag-3 u8 field");
-                }
-                check_keymap_args(*layer, *system)?;
+                // Bind inputs were fully preflighted before the region
+                // write; `write_keymap_rmw` still re-validates the base
+                // read at write time (§Safety 6) in case the table
+                // changed since the snapshot.
                 let value = macro916::macro_key_value(*macro_type, *loop_count, slot as u8);
-                let arg = (*layer & 3) | ((*system & 1) << 2);
-                // `write_keymap_rmw` validates the base read (AGENTS.md
-                // §Safety 6) — a short read is refused, not zero-padded.
                 let mut old = 0u32;
                 let outcome2 = kb.write_keymap_rmw(*layer, *system, |values| {
                     if *k >= values.len() {
                         bail!(
-                            "key slot {k} out of range: keymap has {} entries (arg 0x{arg:02X})",
+                            "key slot {k} out of range: keymap has {} entries",
                             values.len()
                         );
                     }
@@ -684,5 +863,84 @@ pub fn run(cli: &Cli, command: &Kb916Macro) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn step(kind: StepKind) -> MacroStep {
+        MacroStep {
+            action: 0,
+            delay_ms: 0,
+            usage: 4,
+            kind,
+        }
+    }
+
+    fn entry(name: &str, kinds: &[StepKind]) -> MacroEntry {
+        MacroEntry {
+            name: name.into(),
+            steps: kinds.iter().map(|&k| step(k)).collect(),
+        }
+    }
+
+    #[test]
+    fn preservable_clean_region_ok() {
+        let entries = vec![
+            entry("a", &[StepKind::Key, StepKind::Modifier]),
+            entry("b", &[StepKind::Mouse]),
+        ];
+        assert!(check_region_preservable(&entries, &[]).is_ok());
+    }
+
+    #[test]
+    fn other_step_first_entry_rejected() {
+        let entries = vec![
+            entry("bad", &[StepKind::Other(7), StepKind::Key]),
+            entry("good", &[StepKind::Key]),
+        ];
+        let err = check_region_preservable(&entries, &[])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("macro[0]") && err.contains("step 0"), "{err}");
+    }
+
+    #[test]
+    fn other_step_middle_and_last_detected() {
+        for pos in 0..3 {
+            let mut kinds = vec![StepKind::Key; 3];
+            kinds[pos] = StepKind::Other(11);
+            let entries = vec![entry("m", &kinds)];
+            let err = check_region_preservable(&entries, &[])
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(&format!("step {pos}")), "{err}");
+        }
+    }
+
+    #[test]
+    fn skipped_entry_may_contain_other() {
+        // The entry being replaced/deleted is the user's explicit target —
+        // its opaque steps may be dropped intentionally.
+        let entries = vec![
+            entry("keep", &[StepKind::Key]),
+            entry("replace-me", &[StepKind::Other(3)]),
+        ];
+        assert!(check_region_preservable(&entries, &[1]).is_ok());
+        assert!(check_region_preservable(&entries, &[0]).is_err());
+    }
+
+    #[test]
+    fn set_replace_of_other_entry_is_allowed_but_siblings_not() {
+        // set on slot 0 (clean) while slot 1 has Other -> reject.
+        let entries = vec![
+            entry("clean", &[StepKind::Key]),
+            entry("opaque", &[StepKind::Other(9)]),
+        ];
+        assert!(check_region_preservable(&entries, &[0]).is_err());
+        // set replacing the opaque entry itself -> allowed.
+        assert!(check_region_preservable(&entries, &[1]).is_ok());
     }
 }

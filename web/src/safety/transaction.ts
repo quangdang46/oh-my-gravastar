@@ -64,6 +64,13 @@ export interface TransactionOptions {
    * page layer; not used by the executor itself.
    */
   session?: unknown;
+  /**
+   * Desired-state applies set this: an `unverified` write (sent but not
+   * confirmed by read-back) stops the transaction like a failure and
+   * makes `ok` false — continuing to write more sections on top of an
+   * unconfirmed state is not acceptable for config apply.
+   */
+  stopOnUnverified?: boolean;
 }
 
 export interface TransactionResult {
@@ -88,7 +95,9 @@ function emptyCounts(): Record<JournalResult, number> {
 /**
  * Execute `ops` sequentially under policy. Stops on the first `failed`
  * entry (including denied approval and blacklisted ops); `unverified`
- * does not stop the transaction but is reported honestly.
+ * does not stop the transaction but is reported honestly — unless
+ * `opts.stopOnUnverified` is set (desired-state applies), in which case
+ * it stops like a failure and `ok` is false.
  */
 export async function runTransaction(
   ops: readonly PlannedOp[],
@@ -162,12 +171,17 @@ export async function runTransaction(
     try {
       const out = await op.apply();
       const verified = out?.verified !== false;
+      const result: JournalResult = verified ? 'success' : 'unverified';
       record({
         ...base,
         finished: new Date().toISOString(),
-        result: verified ? 'success' : 'unverified',
+        result,
         ...(verified ? {} : { error: 'write sent but read-back did not confirm it' }),
       });
+      if (!verified && opts.stopOnUnverified) {
+        completed = false;
+        break;
+      }
     } catch (e) {
       record({
         ...base,
@@ -182,7 +196,7 @@ export async function runTransaction(
 
   return {
     journal,
-    ok: counts.failed === 0,
+    ok: counts.failed === 0 && !(opts.stopOnUnverified === true && counts.unverified > 0),
     completed,
     counts,
   };

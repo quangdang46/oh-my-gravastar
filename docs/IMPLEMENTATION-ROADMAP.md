@@ -70,6 +70,7 @@ All gated by capability registry; **blocked-by-hardware** for verification.
 | `7js` | NL→plan assistant + "Explain my keyboard" | `ak2`, `zlb` | rule-based first, P4 |
 | *(new)* `simulator` | config simulator (preview effects without write) | `ak2` | differentiator; agent foundation |
 | `oe4` | `docs/agent-api.md` (op vocabulary, lifecycle, policy, examples) | `ak2` | **done** — schema v1 documented from `action-schema.ts`; MCP tool manifest still pending |
+| *(new)* `desired-state-config` | schema-first desired-state JSON config (Rust `omg config` + Web Custom config) | `sid`, `ak2` | **partial** — Draft 2020-12 artifact shared by python/Rust/AJV; apply lowered for compx settings/lighting replace + khub916 keymap/macros/sleep (CLI) and khub916 subset (web, via safety tx); snapshot+journal+`config rollback` shipped; he-v2/lighting/advkeys/patch-mode still `not_applied` (`docs/device-config-schema.md`) |
 
 ## Phase 5 — Advanced Product (P2)
 

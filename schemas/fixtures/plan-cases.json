@@ -1,0 +1,78 @@
+{
+  "description": "Capability-gate cases shared by Rust plan_sections and web planConfigSections. Only khub916 docs are pinned here — the web app has no compx write path, so compx/he-v2 expectations legitimately differ per implementation and are covered by each side's own tests. expect maps section name -> 'planned' | 'not_applied'.",
+  "cases": [
+    {
+      "name": "khub916 keymap patch planned",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": { "layer": 0, "system": 0, "mode": "patch", "entries": [] }
+      },
+      "expect": { "keymap": "planned" }
+    },
+    {
+      "name": "khub916 keymap replace planned",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": { "layer": 0, "system": 0, "mode": "replace", "values": [] }
+      },
+      "expect": { "keymap": "planned" }
+    },
+    {
+      "name": "khub916 macros planned",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "macros": [{ "index": 0, "steps": [] }]
+      },
+      "expect": { "macros": "planned" }
+    },
+    {
+      "name": "khub916 settings planned",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "settings": { "sleep_seconds": 30 }
+      },
+      "expect": { "settings": "planned" }
+    },
+    {
+      "name": "khub916 lighting not applied",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "lighting": { "mode": "static" }
+      },
+      "expect": { "lighting": "not_applied" }
+    },
+    {
+      "name": "khub916 advanced_keys not applied",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "advanced_keys": { "mode": "replace", "entries": [] }
+      },
+      "expect": { "advanced_keys": "not_applied" }
+    },
+    {
+      "name": "khub916 mixed doc plans only wired sections",
+      "doc": {
+        "schema_version": 1,
+        "device": { "protocol": "khub916", "vid": 7789, "pid": 62721 },
+        "keymap": { "layer": 0, "system": 0, "mode": "patch", "entries": [] },
+        "macros": [{ "index": 0, "steps": [] }],
+        "settings": { "sleep_seconds": 30 },
+        "lighting": { "mode": "static" },
+        "advanced_keys": { "mode": "replace", "entries": [] }
+      },
+      "expect": {
+        "keymap": "planned",
+        "macros": "planned",
+        "settings": "planned",
+        "lighting": "not_applied",
+        "advanced_keys": "not_applied"
+      }
+    }
+  ]
+}
