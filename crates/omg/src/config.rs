@@ -60,6 +60,23 @@ pub enum ConfigCommands {
         #[arg(long)]
         approve: Option<String>,
     },
+    /// Read the connected khub916 device's current state as a
+    /// desired-state document (the `get` half of the config loop:
+    /// get → edit → validate → apply → rollback). Emits every section
+    /// the device can represent in `device-config.schema.json`:
+    /// `settings.sleep_seconds`, `lighting` scalars, one `keymap`
+    /// table, and decodable `macros` entries. The doc format carries a
+    /// single `keymap` section, so `--layer`/`--system` select which
+    /// (layer, system) arg is dumped (default 0/0 — the main layer).
+    /// Always JSON on stdout.
+    Get {
+        /// Keymap layer bits 0-1 of the arg to dump (0-3).
+        #[arg(long, default_value_t = 0)]
+        layer: u8,
+        /// Keymap system/layout bit of the arg to dump (0-1).
+        #[arg(long, default_value_t = 0)]
+        system: u8,
+    },
     /// Restore the pre-apply snapshot written by `config apply --yes`.
     /// Snapshots live next to plan journals (`$OMG_PLAN_DIR` or
     /// `~/.local/share/omg/plans`) as `<id>.snapshots.json`.
@@ -1408,6 +1425,7 @@ pub fn run(cli: &Cli, command: &ConfigCommands) -> Result<ExitCode> {
                 ExitCode::SUCCESS
             })
         }
+        ConfigCommands::Get { layer, system } => cmd_get(cli, *layer, *system),
         ConfigCommands::Rollback { id, yes } => cmd_rollback(cli, id, yes.yes),
     }
 }
@@ -1614,9 +1632,245 @@ fn cmd_rollback(cli: &Cli, id: &str, yes: bool) -> Result<ExitCode> {
     })
 }
 
+// ── config get ─────────────────────────────────────────────────────────
+//
+// Read-side of the desired-state loop. The emitted document must pass
+// `structural_errors` — `cmd_get` self-checks before printing so a get
+// can never hand the user a doc `config validate` would reject.
+
+/// One macro step as a schema `macroStep`: action down/up, the raw
+/// usage byte as `0xNN` (kind preserved via the `kind` field so
+/// modifier/mouse steps round-trip). `StepKind::Other` has no schema
+/// representation — the caller skips the whole entry (§Safety 7: an
+/// opaque step must not be rendered as something it isn't).
+fn macro_step_json(s: &macro916::MacroStep) -> Option<Value> {
+    let kind = match s.kind {
+        macro916::StepKind::Key => "key",
+        macro916::StepKind::Modifier => "modifier",
+        macro916::StepKind::Mouse => "mouse",
+        macro916::StepKind::Other(_) => return None,
+    };
+    let mut step = json!({
+        "action": if s.action == 0 { "down" } else { "up" },
+        "key": format!("0x{:02X}", s.usage),
+        "kind": kind,
+    });
+    if s.delay_ms > 0 {
+        step["delay_ms"] = json!(s.delay_ms);
+    }
+    Some(step)
+}
+
+/// One macro region entry as a schema `macroEntry`, or `None` when any
+/// step is `StepKind::Other` (unrepresentable — see macro_step_json).
+fn macro_entry_json(index: usize, e: &MacroEntry) -> Option<Value> {
+    let steps: Option<Vec<Value>> = e.steps.iter().map(macro_step_json).collect();
+    let steps = steps?;
+    if steps.is_empty() {
+        return None;
+    }
+    let mut entry = json!({
+        "index": index,
+        "steps": steps,
+    });
+    if !e.name.is_empty() {
+        entry["name"] = json!(e.name);
+    }
+    Some(entry)
+}
+
+/// khub916 light state (profile decode) as the schema's sparse
+/// `lighting` patch object. Only fields inside the schema's ranges are
+/// emitted — an out-of-range stored byte is reported on stderr by the
+/// caller, never silently clamped or emitted to make an invalid doc.
+fn lighting_state_json(ls: &omg_proto_khub916::light::LightState) -> (Value, Vec<&'static str>) {
+    let mut obj = serde_json::Map::new();
+    let mut skipped = Vec::new();
+    obj.insert("mode".into(), json!(ls.mode));
+    if ls.speed <= 20 {
+        obj.insert("speed".into(), json!(ls.speed));
+    } else {
+        skipped.push("speed");
+    }
+    if ls.brightness <= 20 {
+        obj.insert("brightness".into(), json!(ls.brightness));
+    } else {
+        skipped.push("brightness");
+    }
+    if matches!(ls.color_model, 1 | 2) {
+        obj.insert("color_model".into(), json!(ls.color_model));
+    } else {
+        skipped.push("color_model");
+    }
+    (Value::Object(obj), skipped)
+}
+
+/// `keymap` section for one (layer, system) arg as a `replace` doc —
+/// the full live table, values as `0x%08X` strings (the grammar
+/// `parse_kb916_key_value` accepts and round-trips exactly).
+fn keymap_section_json(layer: u8, system: u8, values: &[u32]) -> Value {
+    json!({
+        "layer": layer,
+        "system": system,
+        "mode": "replace",
+        "values": values.iter().map(|v| format!("0x{v:08X}")).collect::<Vec<_>>(),
+    })
+}
+
+fn cmd_get(cli: &Cli, layer: u8, system: u8) -> Result<ExitCode> {
+    kb916_macro::check_keymap_args(layer, system)?;
+    let (device, mut kb) = match kb916_session(cli)? {
+        Ok(s) => s,
+        Err(code) => return Ok(code),
+    };
+
+    let profile = kb.profile()?;
+    let mut sections = serde_json::Map::new();
+
+    if let Some(secs) = profile.sleep_seconds() {
+        sections.insert("settings".into(), json!({ "sleep_seconds": secs }));
+    }
+    if let Some(ls) = omg_proto_khub916::light::decode_light_state(&profile) {
+        let (lighting, skipped) = lighting_state_json(&ls);
+        for f in skipped {
+            eprintln!(
+                "warning: light.{f} = {} is outside the schema range — field omitted from the doc",
+                match f {
+                    "speed" => json!(ls.speed).to_string(),
+                    "brightness" => json!(ls.brightness).to_string(),
+                    _ => json!(ls.color_model).to_string(),
+                }
+            );
+        }
+        sections.insert("lighting".into(), lighting);
+    }
+
+    let arg = kb916_macro::keymap_arg(layer, system);
+    let values = kb.key_values(arg)?;
+    sections.insert("keymap".into(), keymap_section_json(layer, system, &values));
+
+    let raw = kb.macro_region()?;
+    match macro916::parse_macro_region(&raw) {
+        Ok(entries) => {
+            let mut skipped = Vec::new();
+            let arr: Vec<Value> = entries
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| match macro_entry_json(i, e) {
+                    Some(v) => Some(v),
+                    None => {
+                        skipped.push(i);
+                        None
+                    }
+                })
+                .collect();
+            if !skipped.is_empty() {
+                eprintln!(
+                    "warning: macro entries {skipped:?} contain step kinds the config \
+                     format cannot represent — omitted (apply preserves them untouched)"
+                );
+            }
+            if !arr.is_empty() {
+                sections.insert("macros".into(), Value::Array(arr));
+            }
+        }
+        Err(e) => {
+            eprintln!("warning: macro region did not decode ({e:#}) — macros section omitted");
+        }
+    }
+
+    let mut doc = json!({
+        "schema_version": 1,
+        "device": {
+            "protocol": "khub916",
+            "vid": device.vid,
+            "pid": device.pid,
+            "usage_page": device.usage_page,
+        },
+    });
+    if let Some(o) = doc.as_object_mut() {
+        for (k, v) in sections {
+            o.insert(k, v);
+        }
+    }
+
+    // A get must never emit a doc `config validate` would reject.
+    let errs = structural_errors(&doc);
+    if !errs.is_empty() {
+        bail!("internal: emitted doc failed schema validation: {errs:?}");
+    }
+    let sem = semantic_errors(&doc)?;
+    if !sem.is_empty() {
+        eprintln!("warning: emitted doc has semantic notes: {sem:?}");
+    }
+    println!("{}", serde_json::to_string_pretty(&doc)?);
+    Ok(ExitCode::SUCCESS)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn get_macro_step_key_kind_roundtrips() {
+        let s = macro916::MacroStep {
+            action: 0,
+            delay_ms: 12,
+            usage: 0x1E,
+            kind: macro916::StepKind::Key,
+        };
+        let v = macro_step_json(&s).unwrap();
+        assert_eq!(v["action"], "down");
+        assert_eq!(v["key"], "0x1E");
+        assert_eq!(v["kind"], "key");
+        assert_eq!(v["delay_ms"], 12);
+        assert!(structural_errors(&json!({
+            "schema_version": 1,
+            "device": {"protocol":"khub916","vid":0x2f68,"pid":0x010C,"usage_page":0x01},
+            "macros": [{"index":0,"steps":[v]}]
+        }))
+        .is_empty());
+    }
+
+    #[test]
+    fn get_macro_step_other_is_unrepresentable() {
+        let s = macro916::MacroStep {
+            action: 1,
+            delay_ms: 0,
+            usage: 0x99,
+            kind: macro916::StepKind::Other(0x55),
+        };
+        assert!(macro_step_json(&s).is_none());
+    }
+
+    #[test]
+    fn get_keymap_replace_is_schema_valid() {
+        let values = vec![0u32, 0x00070004, 0xFFFF_FFFF];
+        let km = keymap_section_json(2, 1, &values);
+        let doc = json!({
+            "schema_version": 1,
+            "device": {"protocol":"khub916","vid":0x2f68,"pid":0x010C,"usage_page":0x01},
+            "keymap": km,
+        });
+        assert!(structural_errors(&doc).is_empty());
+        assert_eq!(doc["keymap"]["values"][1], "0x00070004");
+    }
+
+    #[test]
+    fn get_lighting_out_of_range_fields_are_dropped() {
+        let ls = omg_proto_khub916::light::LightState {
+            mode: 3,
+            speed: 99,
+            brightness: 4,
+            color_model: 7,
+        };
+        let (v, skipped) = lighting_state_json(&ls);
+        assert_eq!(v["mode"], 3);
+        assert!(v.get("speed").is_none());
+        assert_eq!(v["brightness"], 4);
+        assert!(v.get("color_model").is_none());
+        assert_eq!(skipped, vec!["speed", "color_model"]);
+    }
 
     #[test]
     fn embedded_schema_is_valid_draft_2020_12() {

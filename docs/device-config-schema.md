@@ -5,7 +5,12 @@ form lives at `schemas/device-config.schema.json` (JSON Schema Draft
 2020-12, exercised by `schemas/test_schema.py`, mirrored into CI) and the
 Rust CLI now consumes it: `omg config schema` prints the artifact,
 `omg config validate <file>` runs offline structural validation with all
-errors + JSON paths, and `omg config apply <file> [--dry-run|--yes]`
+errors + JSON paths, `omg config get [--layer N] [--system N]` dumps the
+connected khub916 device's current state as a schema-valid document
+(the `keymap` section is the single `(layer, system)` table selected by
+the flags; macro entries containing opaque `StepKind::Other` steps and
+out-of-schema-range light fields are omitted with a stderr warning),
+and `omg config apply <file> [--dry-run|--yes]`
 matches the device, runs layer-2 semantic checks (slot conflicts,
 opaque-step preservation, capability gating) and prints a per-section
 plan. **Apply coverage today:** compx `settings`/`lighting` `replace`,

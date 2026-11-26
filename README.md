@@ -91,7 +91,7 @@ Platform direction: **Full Custom + Agent-first + Safety-first** — see
 for the phased plan. Active work is tracked in beads (`br list`).
 
 - ✅ Agent config: schema-first desired-state CLI + Web guided apply
-  (`omg config schema|validate|apply|rollback`, shared
+  (`omg config get|schema|validate|apply|rollback`, shared
   `schemas/device-config.schema.json` across Rust/Python/Web)
 - 🚧 Capability registry + safety/transaction engine + spec docs (Phase 0)
 - 🚧 Web UI: styled modals, profile history/diff, music-reactive page
@@ -138,6 +138,7 @@ Draft 2020-12 artifact (`schemas/device-config.schema.json`) is consumed
 identically by the CLI, `schemas/test_schema.py`, and the Web PWA (AJV):
 
 ```sh
+omg config get [--layer 0] [--system 0]  # dump the device's current state as a desired-state doc
 omg config schema                    # print the desired-state JSON Schema
 omg config validate dev.json         # offline structural validation (all errors + JSON paths)
 omg config apply dev.json            # device match + per-section plan + plan_hash, no writes
