@@ -20,8 +20,10 @@ use serde_json::json;
 
 mod config;
 mod device;
+mod k1pro_layout;
 mod kb916_adv;
 mod kb916_doctor;
+mod kb916_gif;
 mod kb916_light;
 mod kb916_macro;
 mod kb916_music;
@@ -4262,8 +4264,9 @@ enum Kb916Light {
     /// (profile + light-data blob) is restored on exit or Ctrl-C.
     /// Live-verified status: see docs/research/music-reactive-feasibility.md.
     Stream {
-        /// Test pattern: solid|rainbow|gradient|pulse. Mutually exclusive
-        /// with --file.
+        /// Test pattern: solid|rainbow|gradient|pulse|check (`check` =
+        /// vendor LED calibration: one slot at 160 grey, stepping all
+        /// 126 slots at ~5 Hz). Mutually exclusive with --file.
         #[arg(long, conflicts_with = "file")]
         pattern: Option<String>,
         /// Raw frame stream file, or `-` for stdin (378-byte frames).
@@ -4290,6 +4293,73 @@ enum Kb916Light {
         /// Loop a finite --file stream instead of stopping at EOF.
         #[arg(long)]
         loop_stream: bool,
+        #[command(flatten)]
+        yes: Yes,
+    },
+    /// Stream an image or animated GIF to the keyboard backlight —
+    /// decode (GIF/PNG/JPG/WebP/BMP, ≤40 MB, ≤3000 frames), apply the
+    /// vendor Keyboard Studio placement transform (fit/zoom/offset/
+    /// mirror/flip/trim/saturation), sample the 126 K1 Pro LED slots
+    /// (median or point) and send cmd-8 frames. Requires `--yes`;
+    /// snapshots and restores the pre-run lighting on exit/Ctrl-C.
+    /// Code-verified port of the vendor GIF pipeline + the web UI port;
+    /// live-verified once on K1 Pro (still frame + `--pattern check`).
+    Gif {
+        /// Image file: .gif (animated), .png, .jpg/.jpeg, .webp, .bmp —
+        /// or `-` for stdin.
+        file: String,
+        /// Fit mode: contain|cover|stretch (default contain).
+        #[arg(long)]
+        fit: Option<String>,
+        /// Zoom percent 25–500 (default 100).
+        #[arg(long)]
+        zoom: Option<f64>,
+        /// Horizontal offset, percent of canvas width −250..250.
+        #[arg(long)]
+        x: Option<f64>,
+        /// Vertical offset, percent of canvas height −250..250.
+        #[arg(long)]
+        y: Option<f64>,
+        /// Mirror the image horizontally.
+        #[arg(long)]
+        mirror: bool,
+        /// Flip the image vertically.
+        #[arg(long)]
+        flip_y: bool,
+        /// Crop to the detected content bounds before placing.
+        #[arg(long)]
+        trim: bool,
+        /// LED sampling: median (robust region colour, default) | point
+        /// (centre pixel only).
+        #[arg(long)]
+        sampling: Option<String>,
+        /// Saturation percent 0–200 (default 100).
+        #[arg(long)]
+        saturation: Option<f64>,
+        /// Black gate 0–96: max channel ≤ this → black (default 24).
+        #[arg(long)]
+        black_level: Option<f64>,
+        /// Session brightness percent 0–100 (default 100).
+        #[arg(long, default_value_t = 100.0)]
+        brightness: f64,
+        /// Playback speed 0.25–3.0 (default 1.0).
+        #[arg(long, default_value_t = 1.0)]
+        speed: f64,
+        /// Placement JSON file (vendor saved-placement shape:
+        /// {fit,zoom,x,y,mirror,flipY,trim,sampling,saturation,
+        /// blackLevel}); explicit flags override it. `-` = stdin.
+        #[arg(long)]
+        placement: Option<String>,
+        /// Frames per second (default 30 — the verified cmd-8 ceiling,
+        /// see AGENTS.md incident log).
+        #[arg(long, default_value_t = 30.0)]
+        fps: f64,
+        /// Stop after this many seconds (default: until Ctrl-C).
+        #[arg(long)]
+        duration: Option<f64>,
+        /// Stop after this many frames.
+        #[arg(long)]
+        frames: Option<u64>,
         #[command(flatten)]
         yes: Yes,
     },

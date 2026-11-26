@@ -222,9 +222,10 @@ no flags beyond global (wireless always returns unsupported).
 | `apply <file>` | path or `-` | Already the target pattern: JSON config per `docs/lighting-schema.md`, read-back verified. Template for other `set` commands, not a MIGRATE candidate itself. |
 | `apply --yes` | bool | KEEP |
 | `stream --pattern/--file/--color/--to/--fps/--duration/--frames/--loop-stream/--yes` | mixed | REVIEW — ephemeral live session, not persisted state; see note below |
+| `gif <file> --fit/--zoom/--x/--y/--mirror/--flip-y/--trim/--sampling/--saturation/--black-level/--brightness/--speed/--placement/--fps/--duration/--frames/--yes` | mixed | REVIEW (session params, same family as `stream`/`music`); placement flags mirror the vendor Keyboard Studio saved-placement JSON (`--placement` accepts that shape verbatim) |
 | `music --source/--fps/--sensitivity/--brightness/--effect/--background/--beat-intensity/--attack/--decay/--pixel-order/--engine/--palette/--speed/--duration/--yes` | mixed | REVIEW (session params) / KEEP (`--fps`, `--duration`, `--pixel-order` as pacing/wiring concerns) |
 
-**`stream`/`music` note:** these drive a live, ongoing process rather than
+**`stream`/`music`/`gif` note:** these drive a live, ongoing process rather than
 writing persistent device state, so "desired-state JSON" doesn't naturally
 apply. Recommend a separate "scene/session" command family outside the
 config-migration scope; at most, `--effect`/`--palette`/etc. could later

@@ -51,6 +51,7 @@ unverified · ⬜ not implemented
 | Profile import / restore | `omg profile import` | config page import | 🧪 CLI he-v2/compx only; khub916 export-only |
 | K98 Pro screen info/plan | `kb916 screen info\|plan` | — | 🧪 push/clock stubbed (no read-back) |
 | GIF light frames (cmd 8) — live RGB stream + music-reactive | `kb916 light stream`, `kb916 light music` | — | ✅ live-verified on K1 Pro (LEDs animate; auto-restore) |
+| Image/GIF → per-key LEDs (`kb916 light gif`, vendor Keyboard Studio placement port) | `kb916 light gif <file>` | music page GIF mode (web) | 🧪 live-verified once (still frame + check pattern); animated GIF path code-verified |
 | 2.4 GHz wireless dongle | — | — | 🧪 transport code done (`wireless.rs`), no hardware |
 
 ### HE keyboards — V60 / V75 / V75 Pro / V75 Lite (no hardware yet)
@@ -195,6 +196,9 @@ omg kb916 macro                      # macro region (hex dump)
 omg kb916 light get --json           # decoded lighting state (mode/speed/colours)
 omg kb916 light apply fx.json --yes  # apply a lighting JSON (see docs/lighting-schema.md)
 omg kb916 light stream --pattern rainbow --yes   # live cmd-8 RGB frames (Ctrl-C restores)
+omg kb916 light stream --pattern check --yes     # LED calibration: one slot at a time, ~5 Hz
+omg kb916 light gif anim.gif --yes                # image/GIF → per-key LEDs (see below)
+omg kb916 light gif photo.png --fit cover --zoom 150 --mirror --yes
 omg kb916 light music --yes                      # music-reactive: system audio → FFT → LEDs
 omg kb916 light music --source mic --yes         # or microphone input
 omg kb916 light music --effect pulse --yes       # beat flash | bass | ambient | spectrum | beat (hybrid)

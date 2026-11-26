@@ -623,6 +623,9 @@ enum StreamPattern {
     Rainbow,
     Gradient,
     Pulse,
+    /// Vendor "Kiểm tra LED" calibration: one slot lit at 160 grey,
+    /// stepping through all 126 slots at ~5 Hz.
+    Check,
 }
 
 fn parse_stream_pattern(s: &str) -> Result<StreamPattern> {
@@ -631,21 +634,36 @@ fn parse_stream_pattern(s: &str) -> Result<StreamPattern> {
         "rainbow" => Ok(StreamPattern::Rainbow),
         "gradient" => Ok(StreamPattern::Gradient),
         "pulse" => Ok(StreamPattern::Pulse),
-        other => bail!("unknown --pattern '{other}' (want solid|rainbow|gradient|pulse)"),
+        "check" => Ok(StreamPattern::Check),
+        other => bail!("unknown --pattern '{other}' (want solid|rainbow|gradient|pulse|check)"),
     }
 }
 
 /// Generated-frame source: pure function of the frame index.
-struct PatternGen {
+pub(crate) struct PatternGen {
     kind: StreamPattern,
     color: pm::Rgb,
     to: pm::Rgb,
+    /// Frames per check-led step (~5 Hz at the stream fps).
+    check_step: u64,
 }
 
 impl PatternGen {
     fn frame(&self, n: u64) -> Vec<u8> {
         let slots = khub_light::CUSTOM_LIGHT_SLOTS;
         let colors: Vec<pm::Rgb> = match self.kind {
+            StreamPattern::Check => {
+                // `fE` port: one slot = 160 grey, rest 0; slot advances
+                // every `check_step` frames, wrapping at 126.
+                let mut colors = vec![pm::Rgb::default(); slots];
+                let slot = ((n / self.check_step.max(1)) % slots as u64) as usize;
+                colors[slot] = pm::Rgb {
+                    r: 160,
+                    g: 160,
+                    b: 160,
+                };
+                colors
+            }
             StreamPattern::Solid => vec![self.color; slots],
             // Spatial rainbow scrolling one key-step per frame.
             StreamPattern::Rainbow => (0..slots)
@@ -672,8 +690,9 @@ impl PatternGen {
     }
 }
 
-/// Frame source: generated pattern or a raw 378-byte-frame byte stream.
-enum FrameSource {
+/// Frame source: generated pattern, a raw 378-byte-frame byte stream,
+/// or a decoded image/GIF clip (`kb916 light gif`).
+pub(crate) enum FrameSource {
     Pattern {
         gen: PatternGen,
         n: u64,
@@ -689,17 +708,25 @@ enum FrameSource {
         reader: BufReader<std::io::Stdin>,
         partial: Vec<u8>,
     },
+    /// Decoded image/GIF → sampled LED frames; `elapsed` is wall time
+    /// since stream start (frame selection × session speed inside).
+    Gif {
+        stream: crate::kb916_gif::GifStream,
+    },
 }
 
 impl FrameSource {
-    /// Next 378-byte frame, or `None` at end of stream.
-    fn next_frame(&mut self) -> Result<Option<Vec<u8>>> {
+    /// Next 378-byte frame, or `None` at end of stream. `elapsed` is the
+    /// wall-clock time since streaming started; only the `Gif` variant
+    /// uses it.
+    fn next_frame(&mut self, elapsed: Duration) -> Result<Option<Vec<u8>>> {
         match self {
             FrameSource::Pattern { gen, n } => {
                 let f = gen.frame(*n);
                 *n += 1;
                 Ok(Some(f))
             }
+            FrameSource::Gif { stream } => Ok(Some(stream.frame(elapsed))),
             FrameSource::File { data, pos, loop_ } => {
                 let usable = data.len() - data.len() % khub_light::GIF_FRAME_BYTES;
                 if *pos >= usable {
@@ -823,6 +850,11 @@ pub fn cmd_stream(cli: &Cli, args: StreamArgs<'_>) -> Result<ExitCode> {
                         g: 255,
                         b: 255,
                     },
+                    StreamPattern::Check => pm::Rgb {
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                    },
                 },
             };
             let second = match to {
@@ -837,6 +869,8 @@ pub fn cmd_stream(cli: &Cli, args: StreamArgs<'_>) -> Result<ExitCode> {
                     kind,
                     color: base,
                     to: second,
+                    // ~5 slot-steps per second at the stream fps.
+                    check_step: (fps / 5.0).round().max(1.0) as u64,
                 },
                 n: 0,
             }
@@ -867,10 +901,27 @@ pub fn cmd_stream(cli: &Cli, args: StreamArgs<'_>) -> Result<ExitCode> {
                 }
             }
         }
-        (None, None) => bail!("give --pattern solid|rainbow|gradient|pulse or --file <frames>"),
+        (None, None) => {
+            bail!("give --pattern solid|rainbow|gradient|pulse|check or --file <frames>")
+        }
         (Some(_), Some(_)) => unreachable!("clap conflicts_with"),
     };
 
+    run_stream(cli, source, fps, duration, max_frames, None)
+}
+
+/// Shared cmd-8 pump: session → snapshot → paced frame loop → verified
+/// restore. `source` yields 378-byte frames; `elapsed` (wall time since
+/// the loop started) is passed to `next_frame` for time-based sources
+/// (GIF clip). `meta` is merged into the `--json` `stream_done` payload.
+pub(crate) fn run_stream(
+    cli: &Cli,
+    source: FrameSource,
+    fps: f64,
+    duration: Option<f64>,
+    max_frames: Option<u64>,
+    meta: Option<Value>,
+) -> Result<ExitCode> {
     let (device, mut kb) = match kb916_session(cli)? {
         Ok(s) => s,
         Err(code) => return Ok(code),
@@ -911,7 +962,7 @@ pub fn cmd_stream(cli: &Cli, args: StreamArgs<'_>) -> Result<ExitCode> {
             if deadline.is_some_and(|d| Instant::now() >= d) {
                 break;
             }
-            let frame = match source.next_frame()? {
+            let frame = match source.next_frame(started.elapsed())? {
                 Some(f) => f,
                 None => break, // EOF
             };
@@ -961,7 +1012,7 @@ pub fn cmd_stream(cli: &Cli, args: StreamArgs<'_>) -> Result<ExitCode> {
     };
 
     if cli.json {
-        print_json(&json!({
+        let mut out = json!({
             "device": device,
             "event": "stream_done",
             "frames_sent": sent,
@@ -970,7 +1021,11 @@ pub fn cmd_stream(cli: &Cli, args: StreamArgs<'_>) -> Result<ExitCode> {
             "stream_error": stream_result.as_ref().err().map(|e| format!("{e:#}")),
             "restore": restore_steps,
             "restored": !restore_failed,
-        }))?;
+        });
+        if let Some(m) = meta {
+            out["source"] = m;
+        }
+        print_json(&out)?;
     } else {
         println!("streamed {sent} frames in {:.1}s ({stopped_by})", elapsed);
         for s in &restore_steps {
@@ -1031,6 +1086,52 @@ pub fn cmd(cli: &Cli, command: &Kb916Light) -> Result<ExitCode> {
                     duration: *duration,
                     frames: *frames,
                     loop_stream: *loop_stream,
+                },
+            )
+        }
+        Kb916Light::Gif {
+            file,
+            fit,
+            zoom,
+            x,
+            y,
+            mirror,
+            flip_y,
+            trim,
+            sampling,
+            saturation,
+            black_level,
+            brightness,
+            speed,
+            placement,
+            fps,
+            duration,
+            frames,
+            yes,
+        } => {
+            if !yes.yes {
+                bail!("refusing to write without --yes (docs/plan.md §2: writes are opt-in)");
+            }
+            crate::kb916_gif::cmd(
+                cli,
+                crate::kb916_gif::GifArgs {
+                    file,
+                    fit: fit.as_deref(),
+                    zoom: *zoom,
+                    x: *x,
+                    y: *y,
+                    mirror: *mirror,
+                    flip_y: *flip_y,
+                    trim: *trim,
+                    sampling: sampling.as_deref(),
+                    saturation: *saturation,
+                    black_level: *black_level,
+                    brightness: *brightness,
+                    speed: *speed,
+                    placement_file: placement.as_deref(),
+                    fps: *fps,
+                    duration: *duration,
+                    frames: *frames,
                 },
             )
         }

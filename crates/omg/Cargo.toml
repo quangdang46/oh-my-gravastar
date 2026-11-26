@@ -25,3 +25,7 @@ serde.workspace = true
 serde_json.workspace = true
 jsonschema = "0.30"
 sha2 = "0.10"
+image = { version = "0.25.9", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+
+[dev-dependencies]
+gif = "0.14"
